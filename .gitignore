@@ -1,0 +1,5 @@
+*.pyc
+__pycache__/*.pyc
+messages.db
+
+messages.db-journal

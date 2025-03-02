@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" type="text/css" href="static/style.css">
+    <title>Messenger</title>
+    <script src="static/app.js"></script>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-box" id="chat-box">
+            <!-- Здесь будут отображаться сообщения -->
+        </div>
+            <form id="message-form">
+                <div id="input-container">
+                    <input type="text" id="message-input" placeholder="Введите сообщение" autocomplete="off">
+                    <button type="button" id="emoji-button">😊</button>
+                    <button type="submit">Отправить</button>
+                    <!-- Обновленный пикер смайликов -->
+                <div id="emoji-picker" class="emoji-picker">
+                    <div class="emoji-row" id="emoji-row-1"></div>
+                    <div class="emoji-row" id="emoji-row-2"></div>
+                    <div class="emoji-row" id="emoji-row-3"></div>
+                    <div class="emoji-row" id="emoji-row-4"></div>
+                    <div class="emoji-row" id="emoji-row-5"></div>
+                </div>
+                </div>
+            </form>
+    </div>
+    <div class="sidebar">
+        <div class="groups-section">
+            <h3>Группы</h3>
+            <button id="create-group-btn">Создать группу</button>
+            <div id="groups-list"></div>
+        </div>
+        <div class="group-management">
+            <h3>Участники группы</h3>
+            <div id="group-members"></div>
+            <input type="text" id="add-user-input" placeholder="Добавить пользователя">
+            <select id="role-select">
+                <option value="member">Участник</option>
+                <option value="admin">Администратор</option>
+            </select>
+            <button id="add-user-btn">Добавить</button>
+        </div>
+    </div>
+    <div class="group-management-modal" id="group-management-modal">
+        <div class="modal-content">
+            <h3>Управление группой</h3>
+            <div class="members-list" id="members-list"></div>
+            <div class="add-member-section">
+                <input type="text" id="new-member-input" placeholder="Имя пользователя">
+                <select id="new-member-role">
+                    <option value="member">Участник</option>
+                    <option value="admin">Администратор</option>
+                </select>
+                <button id="add-member-btn">Добавить</button>
+            </div>
+        </div>
+</div>
+</body>
+</html>
+
