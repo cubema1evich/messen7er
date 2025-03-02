@@ -1,5 +1,4 @@
 *.pyc
 __pycache__/*.pyc
-messages.db
+data.db
 
-messages.db-journal
