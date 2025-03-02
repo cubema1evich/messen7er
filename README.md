@@ -1,10 +1,11 @@
 ![bogdangram](https://i.ibb.co/BsLnTjz/bogdangram.png)
 ## Описание
-Веб мессенджер на языке Python разработан для курсовой работы 
+Корпоративный веб мессенджер на языке Python разработан для дипломной работы 
 ## Требования
 - Компьютер
 - Мышка, желательно не трекбольная
 - Клавиатура
+- Интернет
 
 ## Установка
 Для работы потребуется [Python](https://www.python.org/downloads/) и библиотеки 
@@ -20,5 +21,16 @@ pip install WebOb
 ```sh
 pip install -r requirements.txt
 ```
+## Инициализация и первый запуск
+Для [VS Code](https://visualstudio.microsoft.com/ru/#vscode-section)
+- После установки проекта в VS Code жмем F5
+- После успешного запуска переходим в браузер
+- Для доступа к окну регистрации в строке поиска пишем:
+```sh
+localhost:8000/register
+```
+- После успешной регистрации вас перенаправит на сайт авторизации
+- После успешной авторизации вас перенаправит на окно с мессенджером
+
 ![powered by cubemalevich](https://i.ibb.co/LrcLTV1/poweredbycubemalevich.png)
 
