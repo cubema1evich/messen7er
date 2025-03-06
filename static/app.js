@@ -1,269 +1,206 @@
 document.addEventListener("DOMContentLoaded", function () {
-    const chatBox = document.getElementById("chat-box");
-    const messageForm = document.getElementById("message-form");
-    const messageInput = document.getElementById("message-input");
-    const emojiButton = document.getElementById("emoji-button");
-    const emojiPicker = document.getElementById("emoji-picker");
+    // Проверка авторизации
+    const username = sessionStorage.getItem('username');
+    if (username) {
+        document.getElementById('current-user').textContent = sessionStorage.getItem('username');
+    }
+    // Элементы интерфейса
+    const UI = {
+        chatBox: document.getElementById("chat-box"),
+        messageForm: document.getElementById("message-form"),
+        messageInput: document.getElementById("message-input"),
+        createGroupBtn: document.getElementById("create-group-btn"),
+        groupsList: document.getElementById("groups-list"),
+        currentGroupName: document.getElementById("current-group-name"),
+        newMemberInput: document.getElementById("new-member-input"),
+        addMemberBtn: document.getElementById("add-member-btn")
+    };
 
-    const emojiList = [
-        '😁', '😂', '😃', '😄', '😅', '😆', '😇', '😈', '😉', '😊',
-        '😋', '😌', '😍', '😎', '😏', '😐', '😒', '😓', '😔', '😖',
-        '😘', '😚', '😜', '😝', '😞', '😠', '😡', '😢', '😣', '😤',
-        '😥', '😨', '😩', '😪', '😫', '😭', '😰', '😱', '👍', '🎉',
-        '❤️', '😸', '😹', '😺', '😻', '😼', '😽', '😾', '😿', '🙀',
-        '💩', '👴', '🙅', '🙆', '🙇', '🙈', '🙉', '🙊', '🙋', '🙌',
-        '🙍', '🙎', '🙏', '🐌', '🐍', '🐎', '🐑', '🐒', '🐔', '🐗'
-    ];
-
-    const emojisPerRow = 10;
-
-    emojiList.forEach((emoji, index) => {
-        const emojiSpan = document.createElement('span');
-        emojiSpan.innerText = emoji;
-        emojiPicker.appendChild(emojiSpan);
-
-        if ((index + 1) % emojisPerRow === 0) {
-            const breakElement = document.createElement('br');
-            emojiPicker.appendChild(breakElement);
-        }
-    });
-
-    emojiButton.addEventListener("click", function () {
-        emojiPicker.classList.toggle("show");
-    });
-
-    emojiPicker.addEventListener("click", function (event) {
-        if (event.target.tagName === "SPAN") {
-            const emoji = event.target.innerText;
-            messageInput.value += emoji;
-        }
-        emojiPicker.classList.remove("show");
-    });
-
+    let currentGroup = null;
     let lastTimestamp = 0;
 
-    function getMessages() {
-        fetch(`/get_messages?timestamp=${lastTimestamp}`)
-            .then((response) => response.json())
-            .then((data) => {
-                console.log("Received data from server:", data);
-                if (data && data.messages) {
-                    data.messages.forEach((message) => {
-                        if (message.message_text && message.sender) {
-                            addMessage(message, message.sender);
-                        }
-                    });
-                }
-                lastTimestamp = data.timestamp || lastTimestamp;
-            })
-            .catch((error) => {
-                console.error("Error getting messages:", error);
-            });
-    }
+    // Инициализация
+    initEmojiPicker();
+    loadGroups();
+    setInterval(loadMessages, 1000);
+    setupEventListeners();
 
-    function addMessage(message, sender) {
-        console.log("Adding message:", message, "from sender:", sender);
+    // Функции
+    function initEmojiPicker() {
+
+        const emojiPicker = document.getElementById("emoji-picker");
+        const emojiButton = document.getElementById("emoji-btn");
+        // Список эмодзи
+        const emojiList = [
+            '😁', '😂', '😃', '😄', '😅', '😆', '😇', '😈', '😉', '😊',
+            '😋', '😌', '😍', '😎', '😏', '😐', '😒', '😓', '😔', '😖',
+            '😘', '😚', '😜', '😝', '😞', '😠', '😡', '😢', '😣', '😤',
+            '😥', '😨', '😩', '😪', '😫', '😭', '😰', '😱', '👍', '🎉',
+            '❤️', '😸', '😹', '😺', '😻', '😼', '😽', '😾', '😿', '🙀',
+            '💩', '👴', '🙅', '🙆', '🙇', '🙈', '🙉', '🙊', '🙋', '🙌',
+            '🙍', '🙎', '🙏', '🐌', '🐍', '🐎', '🐑', '🐒', '🐔', '🐗'
+        ];
+
+        const emojisPerRow = 10; // Количество эмодзи в строке
+
+        // Инициализация пикера эмодзи
+        emojiList.forEach((emoji, index) => {
+            const emojiSpan = document.createElement('span');
+            emojiSpan.innerText = emoji;
+            emojiPicker.appendChild(emojiSpan);
+
+            if ((index + 1) % emojisPerRow === 0) {
+                const breakElement = document.createElement('br');
+                emojiPicker.appendChild(breakElement);
+            }
+        });
+
+        // Открытие/закрытие пикера эмодзи
+        emojiButton.addEventListener("click", function () {
+            emojiPicker.classList.toggle("show");
+        });
+
+        // Вставка эмодзи в поле ввода
+        emojiPicker.addEventListener("click", function (event) {
+            if (event.target.tagName === "SPAN") {
+                const emoji = event.target.innerText;
+                messageInput.value += emoji;
+            }
+            emojiPicker.classList.remove("show");
+        });
+    }
     
-        if (message && message.message_text && sender) {
-            const messageDiv = document.createElement("div");
-            messageDiv.className = "message";
-            const messageText = document.createElement("p");
-    
-            const displaySender = sender || 'Guest';
-            const displayMessage = message.message_text || '';
-    
-            console.log("Displaying:", displaySender, displayMessage);
-    
-            const senderDiv = document.createElement("div");
-            senderDiv.className = "sender";
-            senderDiv.innerText = displaySender;
-            messageDiv.appendChild(senderDiv);
-    
-            messageText.innerText = displayMessage;
-            messageDiv.appendChild(messageText);
-    
-            chatBox.appendChild(messageDiv);
+    async function loadMessages() {
+        try {
+            const url = currentGroup 
+                ? `/get_group_messages?group_id=${currentGroup}&timestamp=${lastTimestamp}`
+                : `/get_messages?timestamp=${lastTimestamp}`;
+            
+            const res = await fetch(url);
+            const data = await res.json();
+            
+            if(data.messages.length > 0) {
+                displayMessages(data.messages);
+                lastTimestamp = data.timestamp;
+            }
+        } catch (error) {
+            console.error("Error loading messages:", error);
         }
     }
+
+    function displayMessages(messages) {
+        UI.chatBox.innerHTML = messages.map(msg => `
+            <div class="message">
+                <div class="sender">${msg.sender}</div>
+                <p>${msg.message_text}</p>
+            </div>
+        `).join('');
+    }
+
+    async function createGroup() {
+        const groupName = prompt("Введите название группы:");
+        if (!groupName) return;
     
-    messageForm.addEventListener("submit", function (e) {
-        e.preventDefault();
-        const message = messageInput.value;
-
-        if (message) {
-            const username = sessionStorage.getItem('username');
-            addMessage(message, username);
-            messageInput.value = "";
-
-            const requestBody = { message, username };
-            
-            fetch("/send_message", {
-                method: "POST",
-                body: JSON.stringify({ message, username }), 
-                headers: { "Content-Type": "application/json" }, 
-            })
-            .then((response) => response.json())
-            .then((data) => {
-                if (data && data.message) {
-                    console.log("Server response after sending message:", data.message);
-                } else {
-                    console.error("Invalid server response:", data);
-                }
-            })
-            .catch((error) => {
-                console.error("There was a problem with the fetch operation:", error);
+        try {
+            const res = await fetch('/create_group', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ name: groupName })
             });
-        }
-    });
-
-    setInterval(getMessages, 1000);
-    // Создание группы
-document.getElementById('create-group-btn').addEventListener('click', () => {
-    const groupName = prompt('Введите название группы:');
-    if (groupName) {
-        fetch('/create_group', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({name: groupName})
-        })
-        .then(response => response.json())
-        .then(data => loadGroups());
-    }
-});
-async function loadGroups() {
-    try {
-        const response = await fetch('/get_groups');
-        const groups = await response.json();
-        console.log("Groups loaded:", groups);
-        
-        const groupsList = document.getElementById('groups-list');
-        groupsList.innerHTML = groups.map(group => `
-            <div class="group-item" data-group-id="${group.id}">
-                ${group.name}
-                <button onclick="loadGroupMembers(${group.id})">Показать участников</button>
-            </div>
-        `).join('');
-    } catch (error) {
-        console.error("Error loading groups:", error);
-    }
-}
-
-// Загрузка списка групп
-function loadGroups() {
-    fetch('/get_groups')
-    .then(response => response.json())
-    .then(groups => {
-        const groupsList = document.getElementById('groups-list');
-        groupsList.innerHTML = groups.map(group => `
-            <div class="group-item" data-group-id="${group.id}">
-                ${group.name}
-                ${group.role === 'owner' ? 
-                    '<button class="manage-group-btn">Управление</button>' : ''}
-            </div>
-        `).join('');
-    });
-}
-
-    document.addEventListener('click', async (e) => {
-        if (e.target.classList.contains('manage-group-btn')) {
-            const groupId = e.target.closest('.group-item').dataset.groupId;
-            const members = await fetch(`/get_group_members?group_id=${groupId}`)
-                .then(res => res.json());
             
-            const membersHtml = members.map(member => `
-                <div class="member">
-                    ${member.username}
-                    <select class="role-select" data-user-id="${member.id}">
-                        <option ${member.role === 'member' ? 'selected' : ''}>member</option>
-                        <option ${member.role === 'admin' ? 'selected' : ''}>admin</option>
-                    </select>
-                    <button class="remove-member-btn">×</button>
+            if (res.ok) {
+                loadGroups();
+                alert("Группа создана успешно!");
+            }
+        } catch (error) {
+            console.error("Error creating group:", error);
+            alert("Ошибка при создании группы");
+        }
+    }
+
+    async function loadGroups() {
+        try {
+            const res = await fetch('/get_groups');
+            const groups = await res.json();
+            
+            UI.groupsList.innerHTML = groups.map(group => `
+                <div class="group-item" data-group-id="${group.id}" 
+                     onclick="selectGroup(${group.id}, '${group.name}')">
+                    ${group.name}
                 </div>
             `).join('');
-            
-            document.getElementById('group-members').innerHTML = membersHtml;
+        } catch (error) {
+            console.error("Error loading groups:", error);
         }
-    });
-});
+    }
 
-let currentGroup = null;
+    window.selectGroup = (groupId, groupName) => {
+    currentGroup = groupId;
+    UI.currentGroupName.textContent = groupName;
+    UI.chatBox.innerHTML = ''; // Очищаем чат
+    lastTimestamp = 0; // Сбрасываем таймстамп
+    loadMessages(); // Загружаем сообщения для группы
+    };
 
-document.addEventListener('click', async (e) => {
-    if (e.target.closest('.group-item')) {
-        const groupId = e.target.closest('.group-item').dataset.groupId;
-        currentGroup = groupId;
-        loadGroupMessages(groupId);
+    async function addMember() {
+        if (!currentGroup) {
+            alert("Сначала выберите группу!");
+            return;
+        }
+        
+        const username = UI.newMemberInput.value.trim();
+        if (!username) {
+            alert("Введите имя пользователя!");
+            return;
+        }
+    
+        try {
+            const res = await fetch('/add_to_group', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    group_id: currentGroup,
+                    username: username,
+                    role: 'member'
+                })
+            });
+            
+            if (res.ok) {
+                UI.newMemberInput.value = '';
+                alert("Пользователь успешно добавлен!");
+            }
+        } catch (error) {
+            console.error("Error adding member:", error);
+            alert("Ошибка при добавлении пользователя");
+        }
+    }
+
+    function setupEventListeners() {
+        UI.messageForm.addEventListener("submit", sendMessage);
+        UI.addMemberBtn.addEventListener("click", addMember);
+        UI.createGroupBtn.addEventListener("click", createGroup);
+    }
+
+    async function sendMessage(e) {
+        e.preventDefault();
+        const message = UI.messageInput.value.trim();
+        if (!message) return;
+
+        try {
+            const res = await fetch('/send_message', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    message: message,
+                    group_id: currentGroup
+                })
+            });
+            
+            if (res.ok) {
+                UI.messageInput.value = '';
+            }
+        } catch (error) {
+            console.error("Error sending message:", error);
+        }
     }
 });
-
-async function loadGroupMessages(groupId) {
-    const response = await fetch(`/get_group_messages?group_id=${groupId}`);
-    const data = await response.json();
-    displayMessages(data.messages);
-}
-
-document.getElementById('send-btn').addEventListener('click', async () => {
-    const message = messageInput.value.trim();
-    if (message && currentGroup) {
-        await fetch('/send_message', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                message,
-                group_id: currentGroup
-            })
-        });
-        messageInput.value = '';
-    }
-});
-
-document.getElementById('add-member-btn').addEventListener('click', async () => {
-    const username = document.getElementById('new-member-input').value;
-    const role = document.getElementById('new-member-role').value;
-    
-    const userResponse = await fetch(`/get_user_id?username=${username}`);
-    const userData = await userResponse.json();
-    
-    if (userData.user_id) {
-        await fetch('/add_to_group', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                group_id: currentGroup,
-                user_id: userData.user_id,
-                role: role
-            })
-        });
-        updateMembersList();
-    }
-});
-
-async function updateMembersList() {
-    const response = await fetch(`/get_group_members?group_id=${currentGroup}`);
-    const members = await response.json();
-    
-    const membersHtml = members.map(member => `
-        <div class="member">
-            ${member.username}
-            <select class="member-role" data-user-id="${member.user_id}">
-                <option ${member.role === 'member' ? 'selected' : ''}>member</option>
-                <option ${member.role === 'admin' ? 'selected' : ''}>admin</option>
-            </select>
-            <button class="remove-member-btn" data-user-id="${member.user_id}">×</button>
-        </div>
-    `).join('');
-    
-    document.getElementById('members-list').innerHTML = membersHtml;
-}
-
-
-const socket = new WebSocket('ws://localhost:8000/ws');
-
-socket.onmessage = (event) => {
-    const message = JSON.parse(event.data);
-    if (message.type === 'new_group_message') {
-        displayMessage(message.data);
-    } else if (message.type === 'group_update') {
-        loadGroups();
-    }
-};

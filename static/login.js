@@ -69,6 +69,9 @@ document.addEventListener("DOMContentLoaded", function () {
             .then(response => response.json())
             .then(data => {
                 sessionStorage.setItem('username', username);
+                if (data.redirect) {
+                    window.location.replace(data.redirect);
+                }
             })
             .catch(error => {
                 console.error("Error fetching user_id:", error);

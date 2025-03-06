@@ -78,25 +78,36 @@ class NotFoundView(TemplateView):
     pass
 
 class GetMessageView(View):
-    def __init__(self, url) -> None:
-        super().__init__(url)
-        self.last_timestamp = 0
-
     def response(self, environ, start_response):
-        headers = [('Content-type', 'application/json')]
-        status = '200 OK'
-
         query_params = parse_qs(environ.get('QUERY_STRING', ''))
         timestamp = int(query_params.get('timestamp', [0])[0])
 
-        messages, timestamp = self.get_new_messages_from_db(timestamp)
-        data = json.dumps({'messages': messages, 'timestamp': timestamp})
+        conn = sqlite3.connect('data.db')
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT sender, message_text, timestamp 
+            FROM messages 
+            WHERE timestamp > ?
+            ORDER BY timestamp
+        ''', (timestamp,))
+        
+        messages = cursor.fetchall()
+        conn.close()
 
-        #print(f"Sending messages: {data}")
+        formatted_messages = [{
+            'sender': msg[0],
+            'message_text': msg[1],
+            'timestamp': msg[2]
+        } for msg in messages]
 
-        start_response(status, headers)
-        return [data.encode('utf-8')]
-
+        new_timestamp = messages[-1][2] if messages else timestamp
+        
+        return json_response({
+            'messages': formatted_messages,
+            'timestamp': new_timestamp
+        }, start_response)
+    
     def get_new_messages_from_db(self, timestamp):
         conn = sqlite3.connect('data.db')
         cursor = conn.cursor()
@@ -170,32 +181,62 @@ class GetUserIdView(View):
         
 class SendMessageView(View):
     def response(self, environ, start_response):
-        message, username = self.get_message_and_user_from_request(environ)
-        #print("Data before sending:", message, username)
+        try:
+            request = Request(environ)
+            user_id = request.cookies.get('user_id')
+            
+            # Получаем данные из запроса
+            content_length = int(environ.get('CONTENT_LENGTH', 0))
+            post_data = json.loads(request.body.decode('utf-8'))
+            
+            message = post_data.get('message', '')
+            group_id = post_data.get('group_id')
 
-        if message and username:
+            if not user_id:
+                return forbidden_response(start_response)
+
+            conn = sqlite3.connect('data.db')
+            cursor = conn.cursor()
+            
+            # Получаем имя пользователя
+            cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
+            user = cursor.fetchone()
+            username = user[0] if user else 'Anonymous'
+
             timestamp = int(time.time())
-            username = self.get_nickname_from_database(username) or 'Guest'
-            full_message = f"{username}: {message}"
-            self.save_message_to_db(full_message, username, timestamp)
-
-            status = '200 OK'
-            headers = [('Content-type', 'application/json')]
-            data = json.dumps({'message': 'Сообщение успешно получено и сохранено'})
-            #print("Data after sending:", message, username)
-        else:
-            status = '400 Bad Request'
-            headers = [('Content-type', 'application/json')]
-            data = json.dumps({'error': 'Неверное сообщение или пользователь'})
-            #print("Data after sending:", message, username)
-
-        start_response(status, headers)
-        return [data.encode('utf-8')]
+            
+            if group_id:
+                cursor.execute('''
+                    INSERT INTO group_messages 
+                    (group_id, user_id, message, timestamp)
+                    VALUES (?, ?, ?, ?)
+                ''', (group_id, user_id, message, timestamp))
+            else:
+                cursor.execute('''
+                    INSERT INTO messages 
+                    (user_id, sender, message_text, timestamp)
+                    VALUES (?, ?, ?, ?)
+                ''', (user_id, username, message, timestamp))
+            
+            conn.commit()
+            return json_response({'status': 'success'}, start_response)
+            
+        except Exception as e:
+            return json_response(
+                {'error': str(e)}, 
+                start_response, 
+                '500 Internal Server Error'
+            )
+        finally:
+            conn.close()
     
     def save_message_to_db(self, message, username, timestamp, group_id=None):
         conn = sqlite3.connect('data.db')
         cursor = conn.cursor()
-        user_id = self.get_nickname_from_database(username)
+        
+        # Получаем ID пользователя
+        cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
+        user_id = cursor.fetchone()[0]
         
         if group_id:
             cursor.execute('''
@@ -284,19 +325,15 @@ class RegisterView(TemplateView):
         conn = sqlite3.connect('data.db')
         cursor = conn.cursor()
 
-        user_id = uuid.uuid4().hex # Генерируем уникальный идентификатор пользователя
-
-        cursor.execute('SELECT * FROM users WHERE username=?', (username,))
-        existing_user = cursor.fetchone()
-
-        if existing_user:
+        try:
+            cursor.execute('INSERT INTO users (username, password) VALUES (?, ?)', 
+                        (username, password))
+            conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False  # Пользователь уже существует
+        finally:
             conn.close()
-            return False  # Пользователь с таким именем уже существует
-
-        cursor.execute('INSERT INTO users (username, password, user_id) VALUES (?, ?, ?)', (username, password, user_id))
-        conn.commit()
-        conn.close()
-        return True  # Пользователь успешно зарегистрирован
 
     def get_post_data(self, request, key):
         try:
@@ -319,43 +356,49 @@ class LoginView(TemplateView):
 
             if username and password:
                 user_id = self.authenticate_user(username, password)
-                if user_id:
+                if user_id is not None:
                     status = '200 OK'
-                    headers = [('Content-type', 'application/json')]
-                    data = json.dumps({'redirect': '/', 'user_id': str(user_id[0])})  
+                    headers = [
+                        ('Content-Type', 'application/json'),
+                        ('Set-Cookie', f'user_id={user_id}; Path=/; HttpOnly; SameSite=Lax')
+                    ]
+                    data = json.dumps({'redirect': '/'})  
                     start_response(status, headers)
                     return [data.encode('utf-8')]
                 else:
                     status = '401 Unauthorized'
-                    headers = [('Content-type', 'application/json')]
+                    headers = [
+                        ('Content-Type', 'application/json'),
+                        ('Set-Cookie', f'user_id={user_id}; Path=/; HttpOnly; SameSite=Lax')
+                    ]
                     data = json.dumps({'error': 'Invalid username or password'})
                     start_response(status, headers)
                     return [data.encode('utf-8')]
             else:
                 status = '400 Bad Request'
-                headers = [('Content-type', 'application/json')]
+                headers = [
+                        ('Content-Type', 'application/json'),
+                        ('Set-Cookie', f'user_id={user_id}; Path=/; HttpOnly; SameSite=Lax')
+                    ]
                 data = json.dumps({'error': 'Invalid username or password'})
                 start_response(status, headers)
                 return [data.encode('utf-8')]
         else:
             return super().response(environ, start_response)
-
+        
     def authenticate_user(self, username, password):
         conn = sqlite3.connect('data.db')
         cursor = conn.cursor()
-
-        #print(f"Received username: {username}, password: {password}")
-    
-        cursor.execute('SELECT user_id FROM users WHERE username=? AND password=?', (username, password))
-        user_id = cursor.fetchone()
-
-        conn.close()    
-
-        #print("Authenticated user_id:", user_id)  
-
-        return str(user_id[0]) if user_id else None
-
-
+        
+        try:
+            cursor.execute(
+                'SELECT id FROM users WHERE username=? AND password=?',
+                (username, password)
+            )
+            result = cursor.fetchone()
+            return result[0] if result else None
+        finally:
+            conn.close()
 
     def get_post_data(self, request):
         try:
@@ -367,9 +410,9 @@ class LoginView(TemplateView):
         
 class CreateGroupView(View):
     def response(self, environ, start_response):
-        conn = None  # Инициализируем переменную заранее
+        conn = None
         try:
-            # Проверка метода запроса
+            # Проверка метода
             if environ['REQUEST_METHOD'] != 'POST':
                 return json_response(
                     {'error': 'Method not allowed'}, 
@@ -377,78 +420,69 @@ class CreateGroupView(View):
                     '405 Method Not Allowed'
                 )
 
-            # Получение данных
+            # Получаем user_id из куки
             request = Request(environ)
             user_id = request.cookies.get('user_id')
-            
-            # Получение POST-данных
-            content_length = int(environ.get('CONTENT_LENGTH', 0))
-            post_data = json.loads(environ['wsgi.input'].read(content_length))
-            group_name = post_data.get('name', '')
+            print(f"[DEBUG] User ID: {user_id}")  # Логирование
 
-            # Валидация
             if not user_id:
                 return json_response(
-                    {'error': 'Unauthorized'}, 
+                    {'error': 'Требуется авторизация'}, 
                     start_response, 
                     '401 Unauthorized'
                 )
 
+            # Парсим JSON
+            content_length = int(environ.get('CONTENT_LENGTH', 0))
+            post_data = json.loads(environ['wsgi.input'].read(content_length))
+            group_name = post_data.get('name', '')
+
             if not group_name:
                 return json_response(
-                    {'error': 'Group name required'}, 
+                    {'error': 'Укажите название группы'}, 
                     start_response, 
                     '400 Bad Request'
                 )
 
-            # Подключение к БД
+            # Работа с БД
             conn = sqlite3.connect('data.db')
             cursor = conn.cursor()
-
-            # Создание группы
+            
+            # Создаем группу
             cursor.execute('''
                 INSERT INTO groups (name, creator_id, created_at)
                 VALUES (?, ?, ?)
             ''', (group_name, user_id, int(time.time())))
             
             group_id = cursor.lastrowid
-
-            # Добавление создателя в группу
+            print(f"[DEBUG] Created group ID: {group_id}")  # Логирование
+            
+            # Добавляем создателя
             cursor.execute('''
                 INSERT INTO group_members (group_id, user_id, role)
                 VALUES (?, ?, ?)
             ''', (group_id, user_id, 'owner'))
-
-            conn.commit()
+            
+            conn.commit()  # Фиксируем изменения
+            print(f"[DEBUG] Changes committed to database")  # Логирование
+            
             return json_response(
                 {'status': 'success', 'group_id': group_id}, 
                 start_response
             )
 
-        except json.JSONDecodeError:
-            return json_response(
-                {'error': 'Invalid JSON'}, 
-                start_response, 
-                '400 Bad Request'
-            )
-        except sqlite3.Error as e:
-            print(f"[DATABASE ERROR] {e}")
-            return json_response(
-                {'error': 'Database error'}, 
-                start_response, 
-                '500 Internal Server Error'
-            )
         except Exception as e:
-            print(f"[GENERAL ERROR] {e}")
+            print(f"[ERROR] {str(e)}")  # Логирование
             return json_response(
-                {'error': 'Internal server error'}, 
+                {'error': 'Ошибка сервера'}, 
                 start_response, 
                 '500 Internal Server Error'
             )
         finally:
-            if conn:  # Закрываем соединение только если оно было открыто
+            if conn:
                 conn.close()
-                                
+                print("[DEBUG] Database connection closed")  # Логирование
+
 class AddToGroupView(View):
         def check_permission(self, user_id, group_id):
             # Проверка что пользователь имеет права администратора
@@ -491,33 +525,41 @@ class AddToGroupView(View):
             
 class GetGroupsView(View):
     def response(self, environ, start_response):
-        user_id = Request(environ).cookies.get('user_id')
+        request = Request(environ)
+        user_id = request.cookies.get('user_id')
         
+        if not user_id:
+            return json_response(
+                {'error': 'Not authorized'}, 
+                start_response, 
+                '401 Unauthorized'
+            )
+
         conn = sqlite3.connect('data.db')
         cursor = conn.cursor()
         
-        # Получаем все группы, где пользователь является участником
-        cursor.execute('''
-            SELECT g.group_id, g.name, gm.role 
-            FROM groups g
-            JOIN group_members gm ON g.group_id = gm.group_id
-            WHERE gm.user_id = ?
-        ''', (user_id,))
+        try:
+            cursor.execute('''
+                SELECT g.group_id, g.name 
+                FROM groups g
+                JOIN group_members gm ON g.group_id = gm.group_id
+                WHERE gm.user_id = ?
+            ''', (user_id,))
+            
+            groups = [{
+                'id': row[0],
+                'name': row[1]
+            } for row in cursor.fetchall()]
+            
+            return json_response(groups, start_response)
         
-        groups = [{
-            'id': row[0],
-            'name': row[1],
-            'role': row[2]
-        } for row in cursor.fetchall()]
-        
-        conn.close()
-        
-        return json_response(groups, start_response)
+        finally:
+            conn.close()
 
 class GetGroupMessagesView(View):
     def response(self, environ, start_response):
-        group_id = Request(environ).GET.get('group_id')
-        timestamp = Request(environ).GET.get('timestamp', 0)
+        request = Request(environ)
+        group_id = request.GET.get('group_id')
         
         conn = sqlite3.connect('data.db')
         cursor = conn.cursor()
@@ -525,40 +567,27 @@ class GetGroupMessagesView(View):
         cursor.execute('''
             SELECT u.username, gm.message, gm.timestamp
             FROM group_messages gm
-            JOIN users u ON gm.user_id = u.user_id
-            WHERE gm.group_id = ? AND gm.timestamp > ?
+            JOIN users u ON gm.user_id = u.id
+            WHERE gm.group_id = ?
             ORDER BY gm.timestamp
-        ''', (group_id, timestamp))
+        ''', (group_id,))
         
         messages = [{
             'sender': row[0],
-            'text': row[1],
+            'message_text': row[1],  # Прямое использование сообщения
             'timestamp': row[2]
         } for row in cursor.fetchall()]
         
         conn.close()
         
         return json_response({'messages': messages}, start_response)
-
-    def group_permission_required(required_role='member'):
-        def decorator(func):
-            def wrapper(self, environ, start_response):
-                request = Request(environ)
-                user_id = request.cookies.get('user_id')
-                group_id = request.GET.get('group_id') or request.POST.get('group_id')
-                
-                conn = sqlite3.connect('data.db')
-                cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT role FROM group_members 
-                    WHERE user_id = ? AND group_id = ?
-                ''', (user_id, group_id))
-                role = cursor.fetchone()
-                conn.close()
-                
-                if not role or role[0] not in ['owner', 'admin', required_role]:
-                    return forbidden_response(start_response)
-                
-                return func(self, environ, start_response)
-            return wrapper
-        return decorator
+    
+class GetGroupNameView(View):
+    def response(self, environ, start_response):
+        group_id = Request(environ).GET.get('group_id')
+        conn = sqlite3.connect('data.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT name FROM groups WHERE group_id = ?', (group_id,))
+        group_name = cursor.fetchone()
+        conn.close()
+        return json_response({'name': group_name[0]}, start_response)

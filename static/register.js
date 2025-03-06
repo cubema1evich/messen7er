@@ -21,17 +21,14 @@ document.addEventListener("DOMContentLoaded", function () {
             },
             body: requestBody
         }).then(response => {
-            console.log("Server response:", response); // Проверка ответа от сервера
-
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
+            if (response.ok) {
+                window.location.href = "/login"; // Успешный редирект
+            } else {
+                throw new Error('Registration failed');
             }
-            window.location.replace("/login");
-            //return response.json();
-        }).then(data => {
-            console.log(data.message); // Вывод сообщения об успешной регистрации
         }).catch(error => {
-            console.error('There was a problem with the fetch operation:', error);
+            console.error('Error:', error);
+            alert("Registration error. Please try again.");
         });
     });
 });

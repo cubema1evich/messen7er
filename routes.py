@@ -2,12 +2,14 @@ from views import *
 
 routes = {
     '/static/': View,
-    '/$': IndexView,
+    '^/favicon.ico$': View,
+    '^/$': IndexView,  
     '/get_user_id': GetUserIdView,
     '/get_messages': GetMessageView,
     '/send_message': SendMessageView,
     '/register': RegisterView,
-    '/login': LoginView,   
+    '/login': LoginView,
+    '/get_group_messages': GetGroupMessagesView,
     '/create_group': CreateGroupView,
     '/add_to_group': AddToGroupView,
     '/get_groups': GetGroupsView
