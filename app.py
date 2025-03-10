@@ -1,6 +1,7 @@
 import os
 import re
 import sqlite3
+import time
 
 from routes import routes
 from mimes import get_mime
@@ -8,6 +9,7 @@ from views import NotFoundView
 
 conn = sqlite3.connect('data.db')
 cursor = conn.cursor()
+
 
 # Таблица учетных данных пользователей
 cursor.execute('''
@@ -38,6 +40,15 @@ cursor.execute('''
         FOREIGN KEY(creator_id) REFERENCES users(user_id)
         )
 ''')
+# Общий чат
+cursor.execute('SELECT * FROM groups WHERE name = "Общий чат"')
+if not cursor.fetchone():
+    cursor.execute('''
+        INSERT INTO groups (name, creator_id, created_at)
+        VALUES ('Общий чат', 0, ?)
+    ''', (int(time.time()),))
+    conn.commit()
+    
 #Таблица пользователи группы 
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS group_members (
