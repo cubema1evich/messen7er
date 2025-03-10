@@ -481,48 +481,61 @@ class CreateGroupView(View):
         finally:
             if conn:
                 conn.close()
-                print("[DEBUG] Database connection closed")  # Логирование
+                print("[DEBUG] Database connection closed")  
 
 class AddToGroupView(View):
-        def check_permission(self, user_id, group_id):
-            # Проверка что пользователь имеет права администратора
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            user_id = request.cookies.get('user_id')
+            content_length = int(environ.get('CONTENT_LENGTH', 0))
+            post_data = json.loads(request.body.decode('utf-8'))
+            
+            group_id = post_data.get('group_id')
+            username = post_data.get('username')
+            role = post_data.get('role', 'member')
+
+            # Проверка наличия всех параметров
+            if not all([user_id, group_id, username]):
+                return json_response({'error': 'Missing parameters'}, start_response, '400 Bad Request')
+
             conn = sqlite3.connect('data.db')
             cursor = conn.cursor()
+
+            # Проверка прав пользователя
             cursor.execute('''
                 SELECT role FROM group_members 
                 WHERE group_id = ? AND user_id = ?
             ''', (group_id, user_id))
-            role = cursor.fetchone()
-            return role and role[0] in ['owner', 'admin']
-
-        def response(self, environ, start_response):
-            request = Request(environ)
-            user_id = request.cookies.get('user_id')
-            post_data = parse_qs(request.body.decode('utf-8'))
+            user_role = cursor.fetchone()
             
-            target_user_id = post_data.get('user_id', [''])[0]
-            group_id = post_data.get('group_id', [''])[0]
-            role = post_data.get('role', ['member'])[0]
-
-            if not self.check_permission(user_id, group_id):
+            if not user_role or user_role[0] not in ['owner', 'admin']:
                 return forbidden_response(start_response)
 
-            conn = sqlite3.connect('data.db')
-            cursor = conn.cursor()
+            # Поиск ID добавляемого пользователя
+            cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
+            target_user = cursor.fetchone()
+            if not target_user:
+                return json_response({'error': 'User not found'}, start_response, '404 Not Found')
             
-            try:
-                cursor.execute('''
-                    INSERT INTO group_members (group_id, user_id, role)
-                    VALUES (?, ?, ?)
-                ''', (group_id, target_user_id, role))
-                
-                conn.commit()
-                return json_response({'status': 'success'})
-            except sqlite3.IntegrityError:
-                return json_response({'error': 'User already in group'})
-            finally:
+            target_user_id = target_user[0]
+
+            # Добавление в группу
+            cursor.execute('''
+                INSERT OR IGNORE INTO group_members (group_id, user_id, role)
+                VALUES (?, ?, ?)
+            ''', (group_id, target_user_id, role))
+            
+            conn.commit()
+            return json_response({'status': 'success'}, start_response)
+            
+        except Exception as e:
+            print(f"Error: {str(e)}")  # Логирование ошибки
+            return json_response({'error': 'Internal Server Error'}, start_response, '500 Internal Server Error')
+        finally:
+            if 'conn' in locals():
                 conn.close()
-            
+                            
 class GetGroupsView(View):
     def response(self, environ, start_response):
         request = Request(environ)
@@ -591,3 +604,32 @@ class GetGroupNameView(View):
         group_name = cursor.fetchone()
         conn.close()
         return json_response({'name': group_name[0]}, start_response)
+    
+class LeaveGroupView(View):
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            user_id = request.cookies.get('user_id')
+            content_length = int(environ.get('CONTENT_LENGTH', 0))
+            post_data = json.loads(request.body.decode('utf-8'))
+            group_id = post_data.get('group_id')
+
+            if not user_id or not group_id:
+                return forbidden_response(start_response)
+
+            conn = sqlite3.connect('data.db')
+            cursor = conn.cursor()
+            
+            # Удаляем пользователя из группы
+            cursor.execute('''
+                DELETE FROM group_members 
+                WHERE group_id = ? AND user_id = ?
+            ''', (group_id, user_id))
+            
+            conn.commit()
+            return json_response({'status': 'success'}, start_response)
+            
+        except Exception as e:
+            return json_response({'error': str(e)}, start_response, '500 Internal Server Error')
+        finally:
+            conn.close()
