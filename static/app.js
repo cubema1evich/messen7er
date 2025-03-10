@@ -13,8 +13,9 @@ document.addEventListener("DOMContentLoaded", function () {
         groupsList: document.getElementById("groups-list"),
         currentGroupName: document.getElementById("current-group-name"),
         newMemberInput: document.getElementById("new-member-input"),
-        addMemberBtn: document.getElementById("add-member-btn")
-    };
+        addMemberBtn: document.getElementById("add-member-btn"),
+        leaveGroupBtn: document.getElementById("leave-group-btn"),
+        };
 
     let currentGroup = null;
     let lastTimestamp = 0;
@@ -30,6 +31,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
         const emojiPicker = document.getElementById("emoji-picker");
         const emojiButton = document.getElementById("emoji-btn");
+        const messageInput = document.getElementById("message-input");
+
         // Список эмодзи
         const emojiList = [
             '😁', '😂', '😃', '😄', '😅', '😆', '😇', '😈', '😉', '😊',
@@ -61,10 +64,9 @@ document.addEventListener("DOMContentLoaded", function () {
         });
 
         // Вставка эмодзи в поле ввода
-        emojiPicker.addEventListener("click", function (event) {
+        emojiPicker.addEventListener("click", function(event) {
             if (event.target.tagName === "SPAN") {
-                const emoji = event.target.innerText;
-                messageInput.value += emoji;
+                messageInput.value += event.target.innerText;
             }
             emojiPicker.classList.remove("show");
         });
@@ -123,23 +125,57 @@ document.addEventListener("DOMContentLoaded", function () {
             const res = await fetch('/get_groups');
             const groups = await res.json();
             
-            UI.groupsList.innerHTML = groups.map(group => `
-                <div class="group-item" data-group-id="${group.id}" 
-                     onclick="selectGroup(${group.id}, '${group.name}')">
-                    ${group.name}
+            // Добавляем общий чат первым элементом
+            UI.groupsList.innerHTML = `
+                <div class="group-item active" onclick="selectGroup(null, 'Общий чат')">
+                    Общий чат
                 </div>
-            `).join('');
+                ${groups.map(group => `
+                    <div class="group-item" 
+                         data-group-id="${group.id}" 
+                         onclick="selectGroup(${group.id}, '${group.name}')">
+                        ${group.name}
+                    </div>
+                `).join('')}
+            `;
         } catch (error) {
             console.error("Error loading groups:", error);
         }
     }
 
+    async function leaveGroup() {
+        if (!currentGroup) {
+            alert("Сначала выберите группу!");
+            return;
+        }
+    
+        if (!confirm("Вы уверены, что хотите покинуть группу?")) return;
+    
+        try {
+            const res = await fetch('/leave_group', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ group_id: currentGroup })
+            });
+    
+            if (res.ok) {
+                currentGroup = null;
+                UI.currentGroupName.textContent = '';
+                loadGroups();
+                loadMessages();
+                alert("Вы успешно покинули группу");
+            }
+        } catch (error) {
+            console.error("Error leaving group:", error);
+        }
+    }
+        
     window.selectGroup = (groupId, groupName) => {
-    currentGroup = groupId;
-    UI.currentGroupName.textContent = groupName;
-    UI.chatBox.innerHTML = ''; // Очищаем чат
-    lastTimestamp = 0; // Сбрасываем таймстамп
-    loadMessages(); // Загружаем сообщения для группы
+        currentGroup = groupId;
+        UI.currentGroupName.textContent = groupName || 'Общий чат';
+        UI.chatBox.innerHTML = '';
+        lastTimestamp = 0;
+        loadMessages();
     };
 
     async function addMember() {
@@ -179,6 +215,7 @@ document.addEventListener("DOMContentLoaded", function () {
         UI.messageForm.addEventListener("submit", sendMessage);
         UI.addMemberBtn.addEventListener("click", addMember);
         UI.createGroupBtn.addEventListener("click", createGroup);
+        UI.leaveGroupBtn.addEventListener("click", leaveGroup);
     }
 
     async function sendMessage(e) {

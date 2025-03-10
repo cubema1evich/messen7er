@@ -35,9 +35,9 @@
             <div class="group-management">
                 <h3>Управление группой: <span id="current-group-name"></span></h3>
                 <div class="member-management">
-                    <input type="text" id="new-member-input" 
-                           placeholder="Введите имя пользователя">
+                    <input type="text" id="new-member-input" placeholder="Введите имя пользователя">
                     <button id="add-member-btn" class="action-btn">Добавить</button>
+                    <button id="leave-group-btn" class="action-btn danger">Покинуть группу</button>
                 </div>
             </div>
         </aside>
@@ -46,10 +46,9 @@
             <div id="chat-box" class="chat-box"></div>
             <form id="message-form" class="message-form">
                 <div class="input-container">
-                    <div class="emoji-picker" id="emoji-picker"></div>
+                    <input type="text" id="message-input" placeholder="Введите сообщение..." autocomplete="off">
                     <button type="button" id="emoji-btn">😀</button>
-                    <input type="text" id="message-input" 
-                           placeholder="Введите сообщение..." autocomplete="off">
+                    <div id="emoji-picker" class="emoji-picker"></div>
                     <button type="submit" class="send-btn">Отправить</button>
                 </div>
             </form>
