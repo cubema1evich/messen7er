@@ -1,9 +1,14 @@
 document.addEventListener("DOMContentLoaded", function () {
     // Проверка авторизации
     const username = sessionStorage.getItem('username');
-    if (username) {
-        document.getElementById('current-user').textContent = sessionStorage.getItem('username');
-    }
+if (username) {
+    document.getElementById('user-info').style.display = 'flex';
+    document.getElementById('auth-buttons').style.display = 'none';
+    document.getElementById('current-user').textContent = username;
+} else {
+    document.getElementById('user-info').style.display = 'none';
+    document.getElementById('auth-buttons').style.display = 'flex';
+}
     // Элементы интерфейса
     const UI = {
         chatBox: document.getElementById("chat-box"),

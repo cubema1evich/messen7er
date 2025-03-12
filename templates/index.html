@@ -14,9 +14,22 @@
             document.cookie = 'user_id=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
             window.location.href = '/login';
         }
+        
+        // Прячем/показываем кнопки при загрузке
+        document.addEventListener('DOMContentLoaded', () => {
+            if(sessionStorage.getItem('username')) {
+                document.getElementById('user-info').style.display = 'flex';
+                document.getElementById('auth-buttons').style.display = 'none';
+            }
+        });
+    </script>
     </script>
     <header class="header">
-        <div class="user-info">
+        <div class="auth-buttons" id="auth-buttons">
+            <button onclick="window.location.href='/register'" class="auth-btn">Регистрация</button>
+            <button onclick="window.location.href='/login'" class="auth-btn">Вход</button>
+        </div>
+        <div class="user-info" id="user-info">
             Вы вошли как: <span id="current-user"></span>
             <button onclick="logout()" class="logout-btn">Выйти</button>
         </div>

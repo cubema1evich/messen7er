@@ -147,3 +147,58 @@ button[type="submit"]:hover {
     margin-left: 10px;
     padding: 3px;
 }
+
+.header {
+    position: relative;
+    padding: 15px;
+    background: #fff;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.user-info {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.auth-buttons {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    display: flex;
+    gap: 10px;
+}
+
+.auth-btn, .logout-btn {
+    padding: 8px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.auth-btn {
+    background: #ff55e8;
+    color: white;
+    border: none;
+}
+
+.auth-btn:hover {
+    background: #a83999;
+}
+
+.logout-btn {
+    background: #f44336;
+    color: white;
+    border: none;
+}
+
+.logout-btn:hover {
+    background: #d32f2f;
+}
+
+#user-info {
+    display: none; /* По умолчанию скрыто */
+}
