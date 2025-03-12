@@ -8,8 +8,7 @@ from urllib.parse import parse_qs
 from mimes import get_mime
 from webob import Request
 
-from utils import hash_password
-from utils import check_password
+from utils import *
 
 
 Response = namedtuple("Response", "status headers data")
@@ -83,21 +82,21 @@ class NotFoundView(TemplateView):
 
 class GetMessageView(View):
     def response(self, environ, start_response):
+        """
+        Генерирует HTTP-ответ с сообщениями.
+        """
         query_params = parse_qs(environ.get('QUERY_STRING', ''))
         timestamp = int(query_params.get('timestamp', [0])[0])
 
-        conn = sqlite3.connect('data.db')
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT sender, message_text, timestamp 
-            FROM messages 
-            WHERE timestamp > ?
-            ORDER BY timestamp
-        ''', (timestamp,))
-        
-        messages = cursor.fetchall()
-        conn.close()
+        with get_db_cursor() as cursor:
+            cursor.execute('''
+                SELECT sender, message_text, timestamp 
+                FROM messages 
+                WHERE timestamp > ?
+                ORDER BY timestamp
+            ''', (timestamp,))
+            
+            messages = cursor.fetchall()
 
         formatted_messages = [{
             'sender': msg[0],
@@ -185,6 +184,9 @@ class GetUserIdView(View):
         
 class SendMessageView(View):
     def response(self, environ, start_response):
+        """
+        Генерирует HTTP-ответ после отправки сообщения.
+        """
         try:
             request = Request(environ)
             user_id = request.cookies.get('user_id')
@@ -199,40 +201,36 @@ class SendMessageView(View):
             if not user_id:
                 return forbidden_response(start_response)
 
-            conn = sqlite3.connect('data.db')
-            cursor = conn.cursor()
-            
-            # Получаем имя пользователя
-            cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
-            user = cursor.fetchone()
-            username = user[0] if user else 'Anonymous'
+            with get_db_cursor() as cursor:
+                # Получаем имя пользователя
+                cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
+                user = cursor.fetchone()
+                username = user[0] if user else 'Anonymous'
 
-            timestamp = int(time.time())
-            
-            if group_id:
-                cursor.execute('''
-                    INSERT INTO group_messages 
-                    (group_id, user_id, message, timestamp)
-                    VALUES (?, ?, ?, ?)
-                ''', (group_id, user_id, message, timestamp))
-            else:
-                cursor.execute('''
-                    INSERT INTO messages 
-                    (user_id, sender, message_text, timestamp)
-                    VALUES (?, ?, ?, ?)
-                ''', (user_id, username, message, timestamp))
-            
-            conn.commit()
-            return json_response({'status': 'success'}, start_response)
-            
+                timestamp = int(time.time())
+                
+                if group_id:
+                    cursor.execute('''
+                        INSERT INTO group_messages 
+                        (group_id, user_id, message, timestamp)
+                        VALUES (?, ?, ?, ?)
+                    ''', (group_id, user_id, message, timestamp))
+                else:
+                    cursor.execute('''
+                        INSERT INTO messages 
+                        (user_id, sender, message_text, timestamp)
+                        VALUES (?, ?, ?, ?)
+                    ''', (user_id, username, message, timestamp))
+                
+                cursor.connection.commit()
+                return json_response({'status': 'success'}, start_response)
+                
         except Exception as e:
             return json_response(
                 {'error': str(e)}, 
                 start_response, 
                 '500 Internal Server Error'
             )
-        finally:
-            conn.close()
     
     def save_message_to_db(self, message, username, timestamp, group_id=None):
         conn = sqlite3.connect('data.db')
@@ -325,21 +323,20 @@ class RegisterView(TemplateView):
         return super().response(environ, start_response)
 
     def register_user(self, username, password):
-        print(f"Received username reg_us: {username}, password: {password}")
-        conn = sqlite3.connect('data.db')
-        cursor = conn.cursor()
-
+        """
+        Регистрирует пользователя в базе данных.
+        """
         try:
-            # Хешируем пароль перед сохранением
             hashed_password = hash_password(password)
-            cursor.execute('INSERT INTO users (username, password) VALUES (?, ?)', 
-                        (username, hashed_password))
-            conn.commit()
+            with get_db_cursor() as cursor:
+                cursor.execute('INSERT INTO users (username, password) VALUES (?, ?)', 
+                            (username, hashed_password))
+                cursor.connection.commit()
             return True
         except sqlite3.IntegrityError:
-            return False  # Пользователь уже существует
-        finally:
-            conn.close()
+            return False
+        except Exception as e:
+            raise
 
     def get_post_data(self, request, key):
         try:
@@ -393,24 +390,23 @@ class LoginView(TemplateView):
             return super().response(environ, start_response)
         
     def authenticate_user(self, username, password):
-        conn = sqlite3.connect('data.db')
-        cursor = conn.cursor()
-        
+        """
+        Аутентифицирует пользователя.
+        """
         try:
-            # Получаем хеш пароля из базы данных
-            cursor.execute(
-                'SELECT id, password FROM users WHERE username=?',
-                (username,)
-            )
-            result = cursor.fetchone()
-            if result:
-                user_id, hashed_password = result
-                # Проверяем пароль
-                if check_password(hashed_password, password):
-                    return user_id
-            return None  # Пользователь не найден или пароль неверный
-        finally:
-            conn.close()
+            with get_db_cursor() as cursor:
+                cursor.execute(
+                    'SELECT id, password FROM users WHERE username=?',
+                    (username,)
+                )
+                result = cursor.fetchone()
+                if result:
+                    user_id, hashed_password = result
+                    if check_password(hashed_password, password):
+                        return user_id
+            return None
+        except Exception as e:
+            raise
 
     def get_post_data(self, request):
         try:
@@ -422,29 +418,12 @@ class LoginView(TemplateView):
         
 class CreateGroupView(View):
     def response(self, environ, start_response):
-        conn = None
+        """
+        Генерирует HTTP-ответ для создания группы.
+        """
         try:
-            # Проверка метода
-            if environ['REQUEST_METHOD'] != 'POST':
-                return json_response(
-                    {'error': 'Method not allowed'}, 
-                    start_response, 
-                    '405 Method Not Allowed'
-                )
-
-            # Получаем user_id из куки
             request = Request(environ)
             user_id = request.cookies.get('user_id')
-            print(f"[DEBUG] User ID: {user_id}")  # Логирование
-
-            if not user_id:
-                return json_response(
-                    {'error': 'Требуется авторизация'}, 
-                    start_response, 
-                    '401 Unauthorized'
-                )
-
-            # Парсим JSON
             content_length = int(environ.get('CONTENT_LENGTH', 0))
             post_data = json.loads(environ['wsgi.input'].read(content_length))
             group_name = post_data.get('name', '')
@@ -456,44 +435,33 @@ class CreateGroupView(View):
                     '400 Bad Request'
                 )
 
-            # Работа с БД
-            conn = sqlite3.connect('data.db')
-            cursor = conn.cursor()
-            
-            # Создаем группу
-            cursor.execute('''
-                INSERT INTO groups (name, creator_id, created_at)
-                VALUES (?, ?, ?)
-            ''', (group_name, user_id, int(time.time())))
-            
-            group_id = cursor.lastrowid
-            print(f"[DEBUG] Created group ID: {group_id}")  # Логирование
-            
-            # Добавляем создателя
-            cursor.execute('''
-                INSERT INTO group_members (group_id, user_id, role)
-                VALUES (?, ?, ?)
-            ''', (group_id, user_id, 'owner'))
-            
-            conn.commit()  # Фиксируем изменения
-            print(f"[DEBUG] Changes committed to database")  # Логирование
-            
-            return json_response(
-                {'status': 'success', 'group_id': group_id}, 
-                start_response
-            )
+            with get_db_cursor() as cursor:
+                # Создаем группу
+                cursor.execute('''
+                    INSERT INTO groups (name, creator_id, created_at)
+                    VALUES (?, ?, ?)
+                ''', (group_name, user_id, int(time.time())))
+                
+                group_id = cursor.lastrowid
+                
+                # Добавляем создателя
+                cursor.execute('''
+                    INSERT INTO group_members (group_id, user_id, role)
+                    VALUES (?, ?, ?)
+                ''', (group_id, user_id, 'owner'))
+                
+                cursor.connection.commit()
+                return json_response(
+                    {'status': 'success', 'group_id': group_id}, 
+                    start_response
+                )
 
         except Exception as e:
-            print(f"[ERROR] {str(e)}")  # Логирование
             return json_response(
                 {'error': 'Ошибка сервера'}, 
                 start_response, 
                 '500 Internal Server Error'
             )
-        finally:
-            if conn:
-                conn.close()
-                print("[DEBUG] Database connection closed")  
 
 class AddToGroupView(View):
     def response(self, environ, start_response):
