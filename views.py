@@ -8,6 +8,10 @@ from urllib.parse import parse_qs
 from mimes import get_mime
 from webob import Request
 
+from utils import hash_password
+from utils import check_password
+
+
 Response = namedtuple("Response", "status headers data")
 
 def json_response(data, start_response, status='200 OK'):
@@ -326,8 +330,10 @@ class RegisterView(TemplateView):
         cursor = conn.cursor()
 
         try:
+            # Хешируем пароль перед сохранением
+            hashed_password = hash_password(password)
             cursor.execute('INSERT INTO users (username, password) VALUES (?, ?)', 
-                        (username, password))
+                        (username, hashed_password))
             conn.commit()
             return True
         except sqlite3.IntegrityError:
@@ -391,12 +397,18 @@ class LoginView(TemplateView):
         cursor = conn.cursor()
         
         try:
+            # Получаем хеш пароля из базы данных
             cursor.execute(
-                'SELECT id FROM users WHERE username=? AND password=?',
-                (username, password)
+                'SELECT id, password FROM users WHERE username=?',
+                (username,)
             )
             result = cursor.fetchone()
-            return result[0] if result else None
+            if result:
+                user_id, hashed_password = result
+                # Проверяем пароль
+                if check_password(hashed_password, password):
+                    return user_id
+            return None  # Пользователь не найден или пароль неверный
         finally:
             conn.close()
 
