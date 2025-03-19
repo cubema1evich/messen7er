@@ -553,27 +553,37 @@ class GetGroupMessagesView(View):
     def response(self, environ, start_response):
         request = Request(environ)
         group_id = request.GET.get('group_id')
+        timestamp = int(request.GET.get('timestamp', 0))  # Добавляем параметр timestamp
         
         conn = sqlite3.connect('data.db')
         cursor = conn.cursor()
         
+        # Добавляем фильтр по времени и сортировку
         cursor.execute('''
-            SELECT u.username, gm.message, gm.timestamp
+            SELECT u.username, gm.message, gm.timestamp, gm.message_id
             FROM group_messages gm
             JOIN users u ON gm.user_id = u.id
-            WHERE gm.group_id = ?
+            WHERE gm.group_id = ? AND gm.timestamp > ?
             ORDER BY gm.timestamp
-        ''', (group_id,))
+        ''', (group_id, timestamp))
         
-        messages = [{
-            'sender': row[0],
-            'message_text': row[1],  # Прямое использование сообщения
-            'timestamp': row[2]
-        } for row in cursor.fetchall()]
+        messages = []
+        last_timestamp = timestamp
+        for row in cursor.fetchall():
+            messages.append({
+                'id': row[3],  # Добавляем ID сообщения
+                'sender': row[0],
+                'message_text': row[1],
+                'timestamp': row[2]
+            })
+            last_timestamp = max(last_timestamp, row[2])
         
         conn.close()
         
-        return json_response({'messages': messages}, start_response)
+        return json_response({
+            'messages': messages,
+            'timestamp': last_timestamp  # Возвращаем новый timestamp
+        }, start_response)
     
 class GetGroupNameView(View):
     def response(self, environ, start_response):
