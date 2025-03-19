@@ -1,14 +1,15 @@
 document.addEventListener("DOMContentLoaded", function () {
     // Проверка авторизации
     const username = sessionStorage.getItem('username');
-if (username) {
-    document.getElementById('user-info').style.display = 'flex';
-    document.getElementById('auth-buttons').style.display = 'none';
-    document.getElementById('current-user').textContent = username;
-} else {
-    document.getElementById('user-info').style.display = 'none';
-    document.getElementById('auth-buttons').style.display = 'flex';
-}
+    if (username) {
+        document.getElementById('user-info').style.display = 'flex';
+        document.getElementById('auth-buttons').style.display = 'none';
+        document.getElementById('current-user').textContent = username;
+    } else {
+        document.getElementById('user-info').style.display = 'none';
+        document.getElementById('auth-buttons').style.display = 'flex';
+    }
+
     // Элементы интерфейса
     const UI = {
         chatBox: document.getElementById("chat-box"),
@@ -20,7 +21,14 @@ if (username) {
         newMemberInput: document.getElementById("new-member-input"),
         addMemberBtn: document.getElementById("add-member-btn"),
         leaveGroupBtn: document.getElementById("leave-group-btn"),
-        };
+        sidebarToggle: document.getElementById("sidebar-toggle"), // Новая кнопка
+        sidebar: document.querySelector(".sidebar") // Боковая панель
+    };
+
+    // Обработчик для кнопки открытия/закрытия боковой панели
+    UI.sidebarToggle.addEventListener("click", function () {
+        UI.sidebar.classList.toggle("active");
+    });
 
     let currentGroup = null;
     let lastTimestamp = 0;
@@ -87,8 +95,11 @@ if (username) {
             const data = await res.json();
             
             if(data.messages.length > 0) {
+                if(lastTimestamp === 0) {
+                    UI.chatBox.innerHTML = ''; // Очищаем только при первой загрузке
+                }
                 displayMessages(data.messages);
-                lastTimestamp = data.timestamp;
+                lastTimestamp = data.timestamp; // Важно обновить timestamp
             }
         } catch (error) {
             console.error("Error loading messages:", error);
@@ -96,12 +107,36 @@ if (username) {
     }
 
     function displayMessages(messages) {
-        UI.chatBox.innerHTML = messages.map(msg => `
-            <div class="message">
-                <div class="sender">${msg.sender}</div>
-                <p>${msg.message_text}</p>
-            </div>
-        `).join('');
+        const chatBox = UI.chatBox;
+    
+        messages.forEach(msg => {
+            // Проверяем, есть ли уже такое сообщение в чате
+            const existingMessage = Array.from(chatBox.children).find(
+                element => element.dataset.messageId === msg.id
+            );
+    
+            // Если сообщение новое, добавляем его
+            if (!existingMessage) {
+                const messageElement = document.createElement("div");
+                messageElement.classList.add("message");
+                messageElement.dataset.messageId = msg.id; // Добавляем уникальный идентификатор
+    
+                const senderElement = document.createElement("div");
+                senderElement.classList.add("sender");
+                senderElement.textContent = msg.sender;
+    
+                const textElement = document.createElement("p");
+                textElement.textContent = msg.message_text;
+    
+                messageElement.appendChild(senderElement);
+                messageElement.appendChild(textElement);
+    
+                chatBox.appendChild(messageElement);
+            }
+        });
+    
+        // Прокручиваем чат вниз
+        chatBox.scrollTop = chatBox.scrollHeight;
     }
 
     async function createGroup() {
@@ -178,9 +213,12 @@ if (username) {
     window.selectGroup = (groupId, groupName) => {
         currentGroup = groupId;
         UI.currentGroupName.textContent = groupName || 'Общий чат';
+    
+        // Очищаем чат перед загрузкой новых сообщений
         UI.chatBox.innerHTML = '';
-        lastTimestamp = 0;
-        loadMessages();
+    
+        lastTimestamp = 0; // Сбрасываем временную метку
+        loadMessages(); // Загружаем сообщения для новой группы
     };
 
     async function addMember() {
