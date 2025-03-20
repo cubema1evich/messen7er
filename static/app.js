@@ -18,17 +18,39 @@ document.addEventListener("DOMContentLoaded", function () {
         createGroupBtn: document.getElementById("create-group-btn"),
         groupsList: document.getElementById("groups-list"),
         currentGroupName: document.getElementById("current-group-name"),
-        newMemberInput: document.getElementById("new-member-input"),
-        addMemberBtn: document.getElementById("add-member-btn"),
-        leaveGroupBtn: document.getElementById("leave-group-btn"),
-        sidebarToggle: document.getElementById("sidebar-toggle"), // Новая кнопка
-        sidebar: document.querySelector(".sidebar") // Боковая панель
+        sidebar: document.querySelector(".sidebar"),
+        sidebarToggle: document.getElementById("sidebar-toggle"), 
+        sidebarClose: document.getElementById('sidebar-close')
+        //newMemberInput: document.getElementById("new-member-input"),
+        //addMemberBtn: document.getElementById("add-member-btn"),
+        //leaveGroupBtn: document.getElementById("leave-group-btn"),
     };
 
-    // Обработчик для кнопки открытия/закрытия боковой панели
-    UI.sidebarToggle.addEventListener("click", function () {
-        UI.sidebar.classList.toggle("active");
+    // Обработчик открытия/закрытия
+
+    UI.sidebarToggle.addEventListener('click', function(e) {
+        e.stopPropagation();
+        UI.sidebar.classList.toggle('active');
+        this.style.display = 'none'; // Скрываем кнопку при открытии
     });
+
+    // Закрытие при клике вне сайдбара
+    document.addEventListener('click', function(e) {
+        if (!UI.sidebar.contains(e.target) && 
+            !UI.sidebarToggle.contains(e.target) &&
+            UI.sidebar.classList.contains('active')) {
+            UI.sidebar.classList.remove('active');
+            UI.sidebarToggle.style.display = 'block'; // Показываем кнопку
+        }
+    });
+
+    // Обработчик закрытия сайдбара через крестик
+    UI.sidebarClose.addEventListener('click', function(e) {
+        e.stopPropagation();
+        UI.sidebar.classList.remove('active');
+        UI.sidebarToggle.style.display = 'block'; // Показываем кнопку "Группы"
+    });
+
 
     let currentGroup = null;
     let lastTimestamp = 0;
@@ -44,7 +66,14 @@ document.addEventListener("DOMContentLoaded", function () {
 
         const emojiPicker = document.getElementById("emoji-picker");
         const emojiButton = document.getElementById("emoji-btn");
-        const messageInput = document.getElementById("message-input");
+        const messageInput = document.getElementById("message-input")
+  
+        // Закрытие при клике вне области
+        document.addEventListener('click', (e) => {
+            if(!emojiButton.contains(e.target) && !emojiPicker.contains(e.target)) {
+                emojiPicker.classList.remove('show');
+            }
+        });
 
         // Список эмодзи
         const emojiList = [
@@ -57,7 +86,7 @@ document.addEventListener("DOMContentLoaded", function () {
             '🙍', '🙎', '🙏', '🐌', '🐍', '🐎', '🐑', '🐒', '🐔', '🐗'
         ];
 
-        const emojisPerRow = 10; // Количество эмодзи в строке
+        const emojisPerRow = 6; // Количество эмодзи в строке
 
         // Инициализация пикера эмодзи
         emojiList.forEach((emoji, index) => {
@@ -71,18 +100,20 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         });
 
-        // Открытие/закрытие пикера эмодзи
-        emojiButton.addEventListener("click", function () {
+        // Обработчик для кнопки эмодзи
+        emojiButton.addEventListener("click", function(e) {
+            e.stopPropagation();
             emojiPicker.classList.toggle("show");
         });
 
-        // Вставка эмодзи в поле ввода
-        emojiPicker.addEventListener("click", function(event) {
-            if (event.target.tagName === "SPAN") {
-                messageInput.value += event.target.innerText;
+        // Обработчик выбора эмодзи
+        emojiPicker.addEventListener("click", function(e) {
+            if(e.target.tagName === "SPAN") {
+                messageInput.value += e.target.innerText;
+                emojiPicker.classList.remove("show");
             }
-            emojiPicker.classList.remove("show");
         });
+
     }
     
     async function loadMessages() {
@@ -134,10 +165,20 @@ document.addEventListener("DOMContentLoaded", function () {
                 chatBox.appendChild(messageElement);
             }
         });
+        const isScrolledUp = chatBox.scrollTop + chatBox.clientHeight < chatBox.scrollHeight - 100;
     
-        // Прокручиваем чат вниз
-        chatBox.scrollTop = chatBox.scrollHeight;
+        if (!isScrolledUp) {
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        requestAnimationFrame(() => {
+            chatBox.scrollTo({
+                top: chatBox.scrollHeight,
+                behavior: 'smooth'
+            });
+        });
     }
+
 
     async function createGroup() {
         const groupName = prompt("Введите название группы:");
@@ -165,16 +206,23 @@ document.addEventListener("DOMContentLoaded", function () {
             const res = await fetch('/get_groups');
             const groups = await res.json();
             
-            // Добавляем общий чат первым элементом
             UI.groupsList.innerHTML = `
-                <div class="group-item active" onclick="selectGroup(null, 'Общий чат')">
+                <div class="group-item ${!currentGroup ? 'active' : ''}" 
+                     onclick="selectGroup(null, 'Общий чат', this)">
                     Общий чат
                 </div>
                 ${groups.map(group => `
                     <div class="group-item" 
                          data-group-id="${group.id}" 
-                         onclick="selectGroup(${group.id}, '${group.name}')">
-                        ${group.name}
+                         onclick="selectGroup(${group.id}, '${group.name}', this)">
+                        <span>${group.name}</span>
+                        <div class="group-menu">
+                            <button class="group-actions-btn" onclick="toggleGroupMenu(event, ${group.id})">⋮</button>
+                            <div class="group-actions-menu" id="group-menu-${group.id}">
+                                <button class="group-action" onclick="addMemberPrompt(${group.id})">Добавить участника</button>
+                                <button class="group-action" onclick="leaveGroupPrompt(${group.id})">Покинуть группу</button>
+                            </div>
+                        </div>
                     </div>
                 `).join('')}
             `;
@@ -182,83 +230,94 @@ document.addEventListener("DOMContentLoaded", function () {
             console.error("Error loading groups:", error);
         }
     }
-
-    async function leaveGroup() {
-        if (!currentGroup) {
-            alert("Сначала выберите группу!");
-            return;
-        }
     
-        if (!confirm("Вы уверены, что хотите покинуть группу?")) return;
+    // Новые функции управления группами
+    window.toggleGroupMenu = function(event, groupId) {
+        event.stopPropagation();
+        const menu = document.getElementById(`group-menu-${groupId}`);
+        menu.classList.toggle('show');
+    }
     
-        try {
-            const res = await fetch('/leave_group', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ group_id: currentGroup })
-            });
-    
-            if (res.ok) {
-                currentGroup = null;
-                UI.currentGroupName.textContent = '';
-                loadGroups();
-                loadMessages();
-                alert("Вы успешно покинули группу");
+    window.addMemberPrompt = async function(groupId) {
+        const username = prompt("Введите имя пользователя для добавления:");
+        if (username) {
+            try {
+                const res = await fetch('/add_to_group', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        group_id: groupId,
+                        username: username,
+                        role: 'member'
+                    })
+                });
+                
+                if (res.ok) {
+                    alert("Пользователь успешно добавлен!");
+                }
+            } catch (error) {
+                console.error("Error adding member:", error);
+                alert("Ошибка при добавлении пользователя");
             }
-        } catch (error) {
-            console.error("Error leaving group:", error);
         }
     }
+    
+    window.leaveGroupPrompt = async function(groupId) {
+        if (confirm("Вы уверены, что хотите покинуть группу?")) {
+            try {
+                const res = await fetch('/leave_group', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ group_id: groupId })
+                });
         
-    window.selectGroup = (groupId, groupName) => {
+                if (res.ok) {
+                    currentGroup = null;
+                    UI.currentGroupName.textContent = '';
+                    loadGroups();
+                    loadMessages();
+                    alert("Вы успешно покинули группу");
+                }
+            } catch (error) {
+                console.error("Error leaving group:", error);
+            }
+        }
+    }
+
+        
+    window.selectGroup = (groupId, groupName, element) => {
         currentGroup = groupId;
         UI.currentGroupName.textContent = groupName || 'Общий чат';
-    
-        // Очищаем чат перед загрузкой новых сообщений
-        UI.chatBox.innerHTML = '';
-    
-        lastTimestamp = 0; // Сбрасываем временную метку
-        loadMessages(); // Загружаем сообщения для новой группы
-    };
-
-    async function addMember() {
-        if (!currentGroup) {
-            alert("Сначала выберите группу!");
-            return;
+        
+        // Удаляем active class у всех элементов
+        document.querySelectorAll('.group-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        
+        // Добавляем active class выбранному элементу
+        if(element) {
+            element.classList.add('active');
         }
         
-        const username = UI.newMemberInput.value.trim();
-        if (!username) {
-            alert("Введите имя пользователя!");
-            return;
-        }
-    
-        try {
-            const res = await fetch('/add_to_group', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    group_id: currentGroup,
-                    username: username,
-                    role: 'member'
-                })
-            });
-            
-            if (res.ok) {
-                UI.newMemberInput.value = '';
-                alert("Пользователь успешно добавлен!");
-            }
-        } catch (error) {
-            console.error("Error adding member:", error);
-            alert("Ошибка при добавлении пользователя");
-        }
-    }
+        // Очищаем чат перед загрузкой новых сообщений
+        UI.chatBox.innerHTML = '';
+        lastTimestamp = 0;
+        loadMessages();
+    };
+
+
 
     function setupEventListeners() {
         UI.messageForm.addEventListener("submit", sendMessage);
-        UI.addMemberBtn.addEventListener("click", addMember);
         UI.createGroupBtn.addEventListener("click", createGroup);
-        UI.leaveGroupBtn.addEventListener("click", leaveGroup);
+        
+        document.addEventListener('click', function(e) {
+            document.querySelectorAll('.group-actions-menu').forEach(menu    => {
+                if (!menu.contains(e.target)) {
+                    menu.classList.remove('show');
+                }
+            });
+        });
     }
 
     async function sendMessage(e) {
