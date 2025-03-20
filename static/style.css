@@ -438,6 +438,10 @@ h2, h3 {
     border: 1px solid #ddd;
     border-radius: 8px;
     font-size: 16px;
+    resize: none;
+    overflow: hidden;
+    min-height: 50px;
+    max-height: 200px;
 }
 
 .emoji-btn {

@@ -342,4 +342,18 @@ document.addEventListener("DOMContentLoaded", function () {
             console.error("Error sending message:", error);
         }
     }
+
+
+    const messageInput = document.getElementById('message-input');
+
+    messageInput.addEventListener('input', function () {
+        this.style.height = 'auto'; // Сбрасываем высоту
+        this.style.height = (this.scrollHeight) + 'px'; // Устанавливаем новую высоту
+    });
+
+    // Инициализация высоты при загрузке страницы
+    window.addEventListener('load', function () {
+        messageInput.style.height = 'auto';
+        messageInput.style.height = (messageInput.scrollHeight) + 'px';
+    });
 });
