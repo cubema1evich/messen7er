@@ -23,51 +23,43 @@
             }
         });
     </script>
-    </script>
     <header class="header">
-        <!-- Кнопка для открытия/закрытия боковой панели -->
-        <button id="sidebar-toggle" class="sidebar-toggle">☰ Группы</button>
-        
         <div class="auth-buttons" id="auth-buttons">
             <button onclick="window.location.href='/register'" class="auth-btn">Регистрация</button>
             <button onclick="window.location.href='/login'" class="auth-btn">Вход</button>
         </div>
-        <div class="user-info" id="user-info">
-            Вы вошли как: <span id="current-user"></span>
-            <button onclick="logout()" class="logout-btn">Выйти</button>
-        </div>
-    </header>
-
-    <div class="container">
-        <aside class="sidebar">
-            <div class="groups-section">
-                <h2>Группы</h2>
-                <button id="create-group-btn" class="create-group-btn">
-                    + Создать группу
-                </button>
-                <div id="groups-list" class="groups-list"></div>
-            </div>
-            
-            <div class="group-management">
-                <h3>Управление группой: <span id="current-group-name"></span></h3>
-                <div class="member-management">
-                    <input type="text" id="new-member-input" placeholder="Введите имя пользователя">
-                    <button id="add-member-btn" class="action-btn">Добавить</button>
-                    <button id="leave-group-btn" class="action-btn danger">Покинуть группу</button>
-                </div>
-            </div>
-        </aside>
+        <div class="user-panel" id="user-info">
+          <span class="username">Вы вошли как: <span id="current-user"></span></span>
+          <button onclick="logout()" class="logout-btn">Выйти</button>
+      </div>
+  </header>
+  
+    <button id="sidebar-toggle" class="sidebar-toggle-btn">☰ Группы</button>
+    <aside class="sidebar">
+      <div class="sidebar-header">
+          <h3 class="sidebar-title">Мои группы</h3>
+          <button id="sidebar-close" class="sidebar-close-btn">✕</button>
+      </div>
+      
+      <div class="sidebar-content">
+          <div id="groups-list" class="groups-list"></div>
+          <button id="create-group-btn" class="create-group-btn">
+              + Новая группа
+          </button>
+      </div>
+  </aside>
 
         <main class="chat-container">
+            <div id="current-group-name" class="current-group"></div>
             <div id="chat-box" class="chat-box"></div>
             <form id="message-form" class="message-form">
-                <div class="input-container">
-                    <input type="text" id="message-input" placeholder="Введите сообщение..." autocomplete="off">
-                    <button type="button" id="emoji-btn">😀</button>
-                    <div id="emoji-picker" class="emoji-picker"></div>
-                    <button type="submit" class="send-btn">Отправить</button>
-                </div>
-            </form>
+              <div class="message-input-container">
+                  <button type="button" id="emoji-btn" class="emoji-btn">😀</button>
+                  <input type="text" id="message-input" placeholder="Введите сообщение..." autocomplete="off">
+                  <button type="submit" class="send-btn">Отправить</button>
+              </div>
+              <div id="emoji-picker" class="emoji-picker"></div>
+          </form>
         </main>
     </div>
 
