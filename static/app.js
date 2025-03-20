@@ -2,12 +2,12 @@ document.addEventListener("DOMContentLoaded", function () {
     // Проверка авторизации
     const username = sessionStorage.getItem('username');
     if (username) {
-        document.getElementById('user-info').style.display = 'flex';
         document.getElementById('auth-buttons').style.display = 'none';
+        document.getElementById('user-info').classList.add('active');
         document.getElementById('current-user').textContent = username;
     } else {
-        document.getElementById('user-info').style.display = 'none';
         document.getElementById('auth-buttons').style.display = 'flex';
+        document.getElementById('user-info').classList.remove('active');
     }
 
     // Элементы интерфейса
@@ -36,13 +36,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // Закрытие при клике вне сайдбара
     document.addEventListener('click', function(e) {
-        if (!UI.sidebar.contains(e.target) && 
-            !UI.sidebarToggle.contains(e.target) &&
-            UI.sidebar.classList.contains('active')) {
-            UI.sidebar.classList.remove('active');
-            UI.sidebarToggle.style.display = 'block'; // Показываем кнопку
-        }
-    });
+    if (!UI.sidebar.contains(e.target) && 
+        !UI.sidebarToggle.contains(e.target) &&
+        UI.sidebar.classList.contains('active')) {
+        UI.sidebar.classList.remove('active');
+        UI.sidebarToggle.style.display = 'block'; // Показываем кнопку
+    }
+});
 
     // Обработчик закрытия сайдбара через крестик
     UI.sidebarClose.addEventListener('click', function(e) {
