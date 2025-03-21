@@ -461,3 +461,40 @@ h2, h3 {
     cursor: pointer;
     transition: background 0.2s;
 }
+
+.private-chat-section {
+    padding: 15px;
+    border-top: 0px solid #eee;
+    margin-top: 10px;
+}
+
+.user-search {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+#search-user-input {
+    flex-grow: 1;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+}
+
+.private-chat-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.user-item {
+    padding: 10px;
+    margin: 5px 0;
+    background: rgba(255,255,255,0.9);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.user-item:hover {
+    background: #fff;
+}

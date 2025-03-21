@@ -33,6 +33,14 @@
                 + Новая группа
             </button>
         </div>
+        <div class="private-chat-section">
+            <h4>Личные сообщения</h4>
+            <div class="user-search">
+                <input type="text" id="search-user-input" placeholder="Поиск пользователей">
+            </div>
+            <button id="start-chat-btn">Начать чат</button>
+            <div id="private-chat-list" class="private-chat-list"></div>
+        </div>
         <div class="user-panel" id="user-info">
             <span class="username">Вы вошли как: <span id="current-user"></span></span>
             <button onclick="logout()" class="logout-btn">Выйти</button>
@@ -40,7 +48,10 @@
     </aside>
 
     <main class="chat-container">
-        <div id="current-group-name" class="current-group"></div>
+        <div id="current-chat-info">
+            <span id="current-group-name"></span>
+            <span id="current-private-chat"></span>
+        </div>
         <div id="chat-box" class="chat-box"></div>
         <form id="message-form" class="message-form">
             <div class="message-input-container">
