@@ -82,9 +82,6 @@ class NotFoundView(TemplateView):
 
 class GetMessageView(View):
     def response(self, environ, start_response):
-        """
-        Генерирует HTTP-ответ с сообщениями.
-        """
         query_params = parse_qs(environ.get('QUERY_STRING', ''))
         timestamp = int(query_params.get('timestamp', [0])[0])
 
@@ -694,34 +691,53 @@ class GetPrivateMessagesView(View):
                 return forbidden_response(start_response)
 
             with get_db_cursor() as cursor:
+                # Получаем ID собеседника
                 cursor.execute('SELECT id FROM users WHERE username = ?', (other_user,))
-                other_user_id = cursor.fetchone()[0]
+                result = cursor.fetchone()
+                if not result:
+                    return json_response({'error': 'User not found'}, start_response, '404 Not Found')
+                other_user_id = result[0]
 
+                # Исправленный SQL-запрос
                 cursor.execute('''
-                    SELECT pm.message, u.username, pm.timestamp 
+                    SELECT 
+                        pm.id,
+                        pm.message,
+                        u.username,
+                        pm.timestamp
                     FROM private_messages pm
                     JOIN users u ON pm.sender_id = u.id
-                    WHERE ((sender_id = ? AND receiver_id = ?) 
-                        OR (sender_id = ? AND receiver_id = ?))
+                    WHERE 
+                        (pm.sender_id = ? AND pm.receiver_id = ?)
+                        OR 
+                        (pm.sender_id = ? AND pm.receiver_id = ?)
                     AND pm.timestamp > ?
-                    ORDER BY pm.timestamp
+                    ORDER BY pm.timestamp ASC
                 ''', (user_id, other_user_id, other_user_id, user_id, timestamp))
                 
-                messages = [{
-                    'sender': row[1],
-                    'message_text': row[0],  # Исправлено с message на message_text
-                    'timestamp': row[2]
-                } for row in cursor.fetchall()]
+                messages = []
+                for row in cursor.fetchall():
+                    messages.append({
+                        'id': row[0],
+                        'sender': row[2],
+                        'message_text': row[1],
+                        'timestamp': row[3]
+                    })
 
                 new_timestamp = max([msg['timestamp'] for msg in messages]) if messages else timestamp
-
+                
                 return json_response({
                     'messages': messages,
                     'timestamp': new_timestamp
                 }, start_response)
 
         except Exception as e:
-            return json_response({'error': str(e)}, start_response, '500 Internal Server Error')
+            print(f"Error in private messages: {str(e)}")
+            return json_response(
+                {'error': 'Internal server error'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )
 
 class SearchUsersView(View):
     def response(self, environ, start_response):
@@ -742,3 +758,45 @@ class SearchUsersView(View):
                 
         except Exception as e:
             return json_response({'error': str(e)}, start_response, '500 Internal Server Error')
+
+class GetPrivateChatsView(View):
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            user_id = request.cookies.get('user_id')
+            if not user_id:
+                return forbidden_response(start_response)
+
+            with get_db_cursor() as cursor:
+                # Улучшенный запрос с проверкой существования пользователя
+                cursor.execute('''
+                    SELECT u.username, MAX(pm.timestamp) as last_activity
+                    FROM (
+                        SELECT sender_id as user_id, timestamp 
+                        FROM private_messages 
+                        WHERE receiver_id = ?
+                        UNION ALL
+                        SELECT receiver_id as user_id, timestamp 
+                        FROM private_messages 
+                        WHERE sender_id = ?
+                    ) pm
+                    JOIN users u ON pm.user_id = u.id
+                    WHERE u.id != ?
+                    GROUP BY u.username
+                    ORDER BY last_activity DESC
+                ''', (user_id, user_id, user_id))
+                
+                chats = [{
+                    'username': row[0],
+                    'last_activity': row[1] or 0  # Защита от NULL
+                } for row in cursor.fetchall()]
+
+            return json_response({'chats': chats}, start_response)
+            
+        except Exception as e:
+            print(f"Error in GetPrivateChatsView: {str(e)}")
+            return json_response(
+                {'error': 'Internal server error'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )
