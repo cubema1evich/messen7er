@@ -75,6 +75,18 @@ def initialize_database():
             )
         ''')
 
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS private_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sender_id INTEGER NOT NULL,
+                receiver_id INTEGER NOT NULL,
+                message TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                FOREIGN KEY(sender_id) REFERENCES users(id),
+                FOREIGN KEY(receiver_id) REFERENCES users(id)
+            )
+        ''')
+
         # Фиксируем изменения в базе данных
         cursor.connection.commit()
 
