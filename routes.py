@@ -17,7 +17,8 @@ routes = {
     '/get_groups': GetGroupsView,
     '/send_private_message': SendPrivateMessageView,
     '/get_private_messages': GetPrivateMessagesView,
-    '/search_users': SearchUsersView
+    '/search_users': SearchUsersView,
+    '/get_private_chats': GetPrivateChatsView
 }
 
 
