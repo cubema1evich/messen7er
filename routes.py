@@ -14,7 +14,10 @@ routes = {
     '/add_to_group': AddToGroupView,
     '/leave_group': LeaveGroupView,
     '/add_to_group': AddToGroupView,
-    '/get_groups': GetGroupsView
+    '/get_groups': GetGroupsView,
+    '/send_private_message': SendPrivateMessageView,
+    '/get_private_messages': GetPrivateMessagesView,
+    '/search_users': SearchUsersView
 }
 
 
