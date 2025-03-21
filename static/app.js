@@ -20,7 +20,11 @@ document.addEventListener("DOMContentLoaded", function () {
         currentGroupName: document.getElementById("current-group-name"),
         sidebar: document.querySelector(".sidebar"),
         sidebarToggle: document.getElementById("sidebar-toggle"), 
-        sidebarClose: document.getElementById('sidebar-close')
+        sidebarClose: document.getElementById('sidebar-close'),
+        privateChatList: document.getElementById('private-chat-list'),
+        searchUserInput: document.getElementById('search-user-input'),
+        startChatBtn: document.getElementById('start-chat-btn'),
+        currentChatInfo: document.getElementById('current-chat-info')
         //newMemberInput: document.getElementById("new-member-input"),
         //addMemberBtn: document.getElementById("add-member-btn"),
         //leaveGroupBtn: document.getElementById("leave-group-btn"),
@@ -58,7 +62,10 @@ document.addEventListener("DOMContentLoaded", function () {
     // Инициализация
     initEmojiPicker();
     loadGroups();
-    setInterval(loadMessages, 1000);
+    setInterval(() => {
+        if (currentGroup) loadMessages();
+        if (currentPrivateChat) loadPrivateMessages();
+    }, 500);
     setupEventListeners();
 
     // Функции
@@ -118,65 +125,66 @@ document.addEventListener("DOMContentLoaded", function () {
     
     async function loadMessages() {
         try {
-            const url = currentGroup 
-                ? `/get_group_messages?group_id=${currentGroup}&timestamp=${lastTimestamp}`
-                : `/get_messages?timestamp=${lastTimestamp}`;
+            let url;
+            let params = `timestamp=${lastTimestamp}`;
             
+            if (currentGroup) {
+                // Групповой чат
+                url = `/get_group_messages?group_id=${currentGroup}&${params}`;
+            } else if (currentPrivateChat) {
+                // Личный чат
+                url = `/get_private_messages?user=${currentPrivateChat}&${params}`;
+            } else {
+                // Общий чат
+                url = `/get_messages?${params}`;
+            }
+    
             const res = await fetch(url);
             const data = await res.json();
             
             if(data.messages.length > 0) {
                 if(lastTimestamp === 0) {
-                    UI.chatBox.innerHTML = ''; // Очищаем только при первой загрузке
+                    UI.chatBox.innerHTML = '';
                 }
                 displayMessages(data.messages);
-                lastTimestamp = data.timestamp; // Важно обновить timestamp
+                lastTimestamp = data.timestamp;
             }
         } catch (error) {
             console.error("Error loading messages:", error);
         }
     }
-
     function displayMessages(messages) {
         const chatBox = UI.chatBox;
-    
+        
         messages.forEach(msg => {
-            // Проверяем, есть ли уже такое сообщение в чате
             const existingMessage = Array.from(chatBox.children).find(
-                element => element.dataset.messageId === msg.id
+                element => element.dataset.timestamp === msg.timestamp.toString()
             );
     
-            // Если сообщение новое, добавляем его
             if (!existingMessage) {
                 const messageElement = document.createElement("div");
                 messageElement.classList.add("message");
-                messageElement.dataset.messageId = msg.id; // Добавляем уникальный идентификатор
+                messageElement.dataset.timestamp = msg.timestamp;
     
                 const senderElement = document.createElement("div");
                 senderElement.classList.add("sender");
                 senderElement.textContent = msg.sender;
     
                 const textElement = document.createElement("p");
-                textElement.textContent = msg.message_text;
+                textElement.textContent = msg.message_text;  // Используем правильное поле
     
                 messageElement.appendChild(senderElement);
                 messageElement.appendChild(textElement);
-    
                 chatBox.appendChild(messageElement);
             }
         });
-        const isScrolledUp = chatBox.scrollTop + chatBox.clientHeight < chatBox.scrollHeight - 100;
     
-        if (!isScrolledUp) {
-            chatBox.scrollTop = chatBox.scrollHeight;
-        }
-
-        requestAnimationFrame(() => {
+        if (messages.length > 0) {
             chatBox.scrollTo({
                 top: chatBox.scrollHeight,
                 behavior: 'smooth'
             });
-        });
+        }
     }
 
 
@@ -287,20 +295,9 @@ document.addEventListener("DOMContentLoaded", function () {
         
     window.selectGroup = (groupId, groupName, element) => {
         currentGroup = groupId;
+        currentPrivateChat = null; // Сбрасываем личный чат
         UI.currentGroupName.textContent = groupName || 'Общий чат';
-        
-        // Удаляем active class у всех элементов
-        document.querySelectorAll('.group-item').forEach(item => {
-            item.classList.remove('active');
-        });
-        
-        // Добавляем active class выбранному элементу
-        if(element) {
-            element.classList.add('active');
-        }
-        
-        // Очищаем чат перед загрузкой новых сообщений
-        UI.chatBox.innerHTML = '';
+        UI.chatBox.innerHTML = ''; // Очищаем чат
         lastTimestamp = 0;
         loadMessages();
     };
@@ -324,22 +321,50 @@ document.addEventListener("DOMContentLoaded", function () {
         e.preventDefault();
         const message = UI.messageInput.value.trim();
         if (!message) return;
-
+    
         try {
-            const res = await fetch('/send_message', {
+            let url, body = {};
+            
+            if (currentGroup) {
+                url = '/send_message';
+                body = { message, group_id: currentGroup };
+            } else if (currentPrivateChat) {
+                url = '/send_private_message';
+                body = { 
+                    message: message,
+                    receiver: currentPrivateChat 
+                };
+            } else {
+                url = '/send_message';
+                body = { message };
+            }
+    
+            const res = await fetch(url, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    message: message,
-                    group_id: currentGroup
-                })
+                body: JSON.stringify(body)
             });
             
-            if (res.ok) {
-                UI.messageInput.value = '';
+            if (!res.ok) {
+                const error = await res.json();
+                throw new Error(error.error || 'Ошибка отправки');
             }
+            
+            UI.messageInput.value = '';
+            
+            // Добавляем мгновенное отображение сообщения
+            const username = sessionStorage.getItem('username');
+            const tempMessage = {
+                sender: username,
+                message_text: message, // Исправлено с message на message_text
+                timestamp: Math.floor(Date.now()/1000)
+            };
+            
+            displayMessages([tempMessage]);
+            
         } catch (error) {
-            console.error("Error sending message:", error);
+            console.error('Ошибка:', error);
+            alert(error.message);
         }
     }
 
@@ -356,4 +381,66 @@ document.addEventListener("DOMContentLoaded", function () {
         messageInput.style.height = 'auto';
         messageInput.style.height = (messageInput.scrollHeight) + 'px';
     });
+
+
+        let currentPrivateChat = null;
+
+    // Добавим обработчики
+    UI.startChatBtn.addEventListener('click', startPrivateChat);
+    UI.searchUserInput.addEventListener('input', searchUsers);
+
+    // Новые функции
+    async function searchUsers() {
+        const searchTerm = UI.searchUserInput.value;
+        if (searchTerm.length < 2) return;
+        
+        try {
+            const res = await fetch(`/search_users?q=${encodeURIComponent(searchTerm)}`);
+            const data = await res.json();
+            renderUserSearchResults(data.users);
+        } catch (error) {
+            console.error("Search error:", error);
+        }
+    }
+
+    function renderUserSearchResults(users) {
+        UI.privateChatList.innerHTML = users.map(user => `
+            <div class="user-item" onclick="selectPrivateChat('${user}')">
+                ${user}
+            </div>
+        `).join('');
+    }
+
+    async function selectPrivateChat(username) {
+        currentPrivateChat = username;
+        currentGroup = null;
+        UI.currentGroupName.textContent = `Личный чат с ${username}`;
+        UI.chatBox.innerHTML = '';
+        lastTimestamp = 0;
+        await loadPrivateMessages();
+    }
+
+    async function loadPrivateMessages() {
+        if (!currentPrivateChat) return;
+        
+        try {
+            const res = await fetch(`/get_private_messages?user=${currentPrivateChat}&timestamp=${lastTimestamp}`);
+            const data = await res.json();
+            
+            if(data.messages.length > 0) {
+                displayMessages(data.messages);
+                lastTimestamp = data.timestamp;
+            }
+        } catch (error) {
+            console.error("Error loading private messages:", error);
+        }
+    }
+
+    async function startPrivateChat() {
+        const username = UI.searchUserInput.value.trim();
+        if (!username) return;
+        
+        selectPrivateChat(username);
+        UI.searchUserInput.value = '';
+    }
 });
