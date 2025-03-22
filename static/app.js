@@ -533,9 +533,21 @@ document.addEventListener("DOMContentLoaded", function () {
     async function startPrivateChat() {
         const username = UI.searchUserInput.value.trim();
         if (!username) return;
-        
-        selectPrivateChat(username);
-        UI.searchUserInput.value = '';
+
+        try {
+            const res = await fetch(`/search_users?q=${encodeURIComponent(username)}`);
+            const data = await res.json();
+            const userExists = data.users.some(user => user === username);
+            if (userExists) {
+                selectPrivateChat(username);
+                UI.searchUserInput.value = '';
+            } else {
+                alert('Пользователь не найден!');
+            }
+        } catch (error) {
+            console.error("Ошибка при проверке пользователя:", error);
+            alert('Ошибка при поиске пользователя');
+        }
     }
 
     async function loadPrivateChats() {
