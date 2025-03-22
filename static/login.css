@@ -58,6 +58,10 @@ button:hover {
     background-color: #a83999;
 }
 
+.register-btn:hover {
+    background-color: crimson;
+}
+
 .input-container::before {
     content: '';
     position: absolute;
