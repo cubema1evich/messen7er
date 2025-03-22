@@ -3,16 +3,16 @@ document.addEventListener("DOMContentLoaded", function () {
 
     registerForm.addEventListener("submit", function (e) {
         e.preventDefault();
-        console.log("Form submitted");
+        
+        const username = document.getElementById("username").value.trim();
+        const password = document.getElementById("password").value;
 
-        const usernameInput = document.getElementById("username");
-        const passwordInput = document.getElementById("password");
-
-        const username = usernameInput.value;
-        const password = passwordInput.value;
+        if (!username || !password) {
+            alert("Заполните все поля!");
+            return;
+        }
 
         const requestBody = new URLSearchParams({ username, password });
-        console.log("Request body:", requestBody); // Проверка содержимого запроса
 
         fetch('/register', {
             method: 'POST',
@@ -20,15 +20,23 @@ document.addEventListener("DOMContentLoaded", function () {
                 'Content-Type': 'application/x-www-form-urlencoded'
             },
             body: requestBody
-        }).then(response => {
+        })
+        .then(async response => {
             if (response.ok) {
-                window.location.href = "/login"; // Успешный редирект
+                window.location.href = "/login";
             } else {
-                throw new Error('Registration failed');
+                // Парсим JSON с ошибкой
+                const errorData = await response.json();
+                if (response.status === 400 && errorData.error === 'Username already exists') {
+                    alert("Пользователь с таким именем уже существует!");
+                } else {
+                    throw new Error(errorData.error || 'Ошибка регистрации');
+                }
             }
-        }).catch(error => {
+        })
+        .catch(error => {
             console.error('Error:', error);
-            alert("Registration error. Please try again.");
+            alert(error.message);
         });
     });
 });
