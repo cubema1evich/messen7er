@@ -11,6 +11,11 @@ document.addEventListener("DOMContentLoaded", function () {
         document.getElementById('user-info').classList.remove('active');
     }
 
+        
+    let currentGroup = null;
+    let currentPrivateChat = null; 
+    let lastTimestamp = 0;
+
     // Элементы интерфейса
     const UI = {
         chatBox: document.getElementById("chat-box"),
@@ -25,14 +30,26 @@ document.addEventListener("DOMContentLoaded", function () {
         searchUserInput: document.getElementById('search-user-input'),
         startChatBtn: document.getElementById('start-chat-btn'),
         currentChatInfo: document.getElementById('current-chat-info'),
-        privateChatsList: document.getElementById('private-chats-list')
+        sendBtn: document.getElementById('send-btn'),
+        privateChatsList: document.getElementById('private-chats-list'),
+        fileInput: document.getElementById('file-input'),
+        fileBtn: document.getElementById('file-btn'),
+        fileIndicator: document.getElementById('file-indicator'),
+        fileCount: document.querySelector('.file-count'),
+        clearFilesBtn: document.querySelector('.clear-files-btn')
         //newMemberInput: document.getElementById("new-member-input"),
         //addMemberBtn: document.getElementById("add-member-btn"),
         //leaveGroupBtn: document.getElementById("leave-group-btn"),
     };
 
-    // Обработчик открытия/закрытия
+    //Обработчик для кнопки файла
+    UI.fileBtn.addEventListener('click', () => UI.fileInput.click());
 
+    //обраюотчик работы с файлами
+    UI.fileInput.addEventListener('change', updateFileIndicator);
+    UI.clearFilesBtn.addEventListener('click', clearFiles);
+    
+    // Обработчик открытия/закрытия
     UI.sidebarToggle.addEventListener('click', function(e) {
         e.stopPropagation();
         UI.sidebar.classList.toggle('active');
@@ -55,10 +72,6 @@ document.addEventListener("DOMContentLoaded", function () {
         UI.sidebar.classList.remove('active');
         UI.sidebarToggle.style.display = 'block'; // Показываем кнопку "Группы"
     });
-
-
-    let currentGroup = null;
-    let lastTimestamp = 0;
 
     // Инициализация
     initEmojiPicker();
@@ -121,9 +134,15 @@ document.addEventListener("DOMContentLoaded", function () {
         // Обработчик выбора эмодзи
         emojiPicker.addEventListener("click", function(e) {
             if(e.target.tagName === "SPAN") {
-                messageInput.value += e.target.innerText;
+                // Заменяем прямой доступ на использование UI
+                UI.messageInput.value += e.target.innerText;
                 emojiPicker.classList.remove("show");
+                
+                // Триггерим событие input для авто-высоты
+                const event = new Event('input');
+                UI.messageInput.dispatchEvent(event);
             }
+        
         });
 
     }
@@ -134,31 +153,30 @@ document.addEventListener("DOMContentLoaded", function () {
             let params = `timestamp=${lastTimestamp}`;
             
             if (currentGroup) {
-                // Групповой чат
                 url = `/get_group_messages?group_id=${currentGroup}&${params}`;
             } else if (currentPrivateChat) {
-                // Личный чат
                 url = `/get_private_messages?user=${currentPrivateChat}&${params}`;
             } else {
-                // Общий чат
                 url = `/get_messages?${params}`;
             }
     
             const res = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+            
             const data = await res.json();
             
             if(data.messages.length > 0) {
                 displayMessages(data.messages);
                 lastTimestamp = data.timestamp;
             }
-
+    
         } catch (error) {
             console.error("Error loading messages:", error);
         }
     }
+
     function displayMessages(messages) {
         const chatBox = UI.chatBox;
-        // Сохраняем состояние прокрутки ДО изменений
         const wasScrolledToBottom = chatBox.scrollHeight - chatBox.clientHeight <= chatBox.scrollTop + 50;
     
         // Удаление временных сообщений
@@ -168,7 +186,6 @@ document.addEventListener("DOMContentLoaded", function () {
         // Сортировка сообщений
         const sortedMessages = [...messages].sort((a, b) => a.timestamp - b.timestamp);
     
-        // Добавление новых сообщений
         sortedMessages.forEach(msg => {
             const messageId = msg.id || msg.timestamp;
             const existingMessage = chatBox.querySelector(`[data-id="${messageId}"]`);
@@ -179,35 +196,48 @@ document.addEventListener("DOMContentLoaded", function () {
                 messageElement.dataset.id = messageId;
                 messageElement.dataset.timestamp = msg.timestamp;
     
-                const time = new Date(msg.timestamp * 1000).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit'
-                });
+                const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: false };
+                const date = new Date(msg.timestamp * 1000);
+                const time = isNaN(date) ? '--:--' : date.toLocaleTimeString([], timeOptions);
     
+                // HTML структура сообщения
                 messageElement.innerHTML = `
                     <div class="message-header">
                         <span class="sender">${msg.sender}</span>
                         <span class="time">${time}</span>
                     </div>
-                    <p class="message-text">${msg.message_text}</p>
+                    ${msg.message_text ? `<p class="message-text">${msg.message_text}</p>` : ''}
+                    ${msg.attachments?.length > 0 ? `
+                    <div class="attachments">
+                        ${msg.attachments.map(att => `
+                            ${att.mime_type.startsWith('image/') ? `
+                                <div class="attachment-image">
+                                    <img src="${att.path}" alt="${att.filename}">
+                                    <span class="file-name">${att.filename}</span>
+                                </div>
+                            ` : `
+                                <div class="attachment-file">
+                                    <div class="file-icon">📄</div>
+                                    <a href="${att.path}" download class="file-link">
+                                        ${att.filename}
+                                    </a>
+                                </div>
+                            `}
+                        `).join('')}
+                    </div>
+                    ` : ''}
                 `;
     
                 chatBox.appendChild(messageElement);
             }
         });
     
-        // Единый блок прокрутки
+        // Прокрутка после обновления
         requestAnimationFrame(() => {
-            const isScrolledToBottom = chatBox.scrollHeight - chatBox.clientHeight <= chatBox.scrollTop + 100;
-            
-            // Прокручиваем только если:
-            // 1. Пользователь был внизу
-            // 2. Или это временное сообщение
-            // 3. Или после добавления контента мы остались внизу
-            if (wasScrolledToBottom || messages.some(msg => msg.temp) || isScrolledToBottom) {
+            if (wasScrolledToBottom) {
                 chatBox.scrollTo({
                     top: chatBox.scrollHeight,
-                    behavior: messages.some(msg => msg.temp) ? 'auto' : 'smooth'
+                    behavior: 'smooth'
                 });
             }
         });
@@ -320,7 +350,7 @@ document.addEventListener("DOMContentLoaded", function () {
         
     window.selectGroup = (groupId, groupName, element) => {
         currentGroup = groupId;
-        currentPrivateChat = null; // Сбрасываем личный чат
+        currentPrivateChat = null; 
         UI.currentGroupName.textContent = groupName || 'Общий чат';
         UI.chatBox.innerHTML = ''; // Очищаем чат
         lastTimestamp = 0;
@@ -353,102 +383,90 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         });
     }
-
+    
     async function sendMessage(e) {
         e.preventDefault();
         const message = UI.messageInput.value.trim();
-        if (!message) return;
-    
-        // Сохраняем состояние прокрутки перед любыми изменениями
-        const wasScrolledToBottom = UI.chatBox.scrollHeight - UI.chatBox.clientHeight <= UI.chatBox.scrollTop + 50;
+        const files = UI.fileInput.files;
+        
+        if (!message && files.length === 0) return;
+
+        // Создаем уникальный идентификатор для временного сообщения
+        const tempId = Date.now();
         
         try {
-            // Добавляем временное сообщение сразу
-            const username = sessionStorage.getItem('username');
+            // Добавляем временное сообщение
             const tempMessage = {
-                id: Date.now(), // временный уникальный ID
+                id: tempId,
                 sender: username,
                 message_text: message,
                 timestamp: Math.floor(Date.now()/1000),
-                temp: true
+                temp: true,
+                attachments: Array.from(files).map(file => ({
+                    filename: file.name,
+                    mime_type: file.type,
+                    path: URL.createObjectURL(file) // Используем blob URL для превью
+                }))
             };
+            
             displayMessages([tempMessage]);
-    
-            // Подготавливаем данные для отправки
-            let url, body = {};
-            if (currentGroup) {
-                url = '/send_message';
-                body = { message, group_id: currentGroup };
-            } else if (currentPrivateChat) {
-                url = '/send_private_message';
-                body = { 
-                    message: message,
-                    receiver: currentPrivateChat 
-                };
-            } else {
-                url = '/send_message';
-                body = { message };
-            }
-    
-            // Отправка сообщения
-            const res = await fetch(url, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(body)
-            });
+
+            // Формируем FormData
+            const formData = new FormData();
+            formData.append('message', message);
             
-            if (!res.ok) {
-                const error = await res.json();
-                throw new Error(error.error || 'Ошибка отправки');
-            }
-    
-            // Очищаем поле ввода
-            UI.messageInput.value = '';
-            
-            // Для личных чатов: обновляем список чатов
-            if (currentPrivateChat) {
-                await loadPrivateChats();
-                
-                // Загружаем актуальные сообщения с сервера
-                await loadPrivateMessages();
-            }
-    
-            // Автопрокрутка только если пользователь был внизу
-            requestAnimationFrame(() => {
-                const isStillBottom = UI.chatBox.scrollHeight - UI.chatBox.clientHeight <= UI.chatBox.scrollTop + 100;
-                if (wasScrolledToBottom || isStillBottom) {
-                    UI.chatBox.scrollTo({
-                        top: UI.chatBox.scrollHeight,
-                        behavior: 'smooth'
-                    });
+            // Добавляем файлы без дубликатов
+            const uniqueFiles = new Set();
+            Array.from(files).forEach(file => {
+                const fileKey = `${file.name}-${file.size}-${file.lastModified}`;
+                if (!uniqueFiles.has(fileKey)) {
+                    formData.append('files', file, file.name);
+                    uniqueFiles.add(fileKey);
                 }
             });
-    
-        } catch (error) {
-            console.error('Ошибка:', error);
-            alert(error.message);
+
+            // Отправка
+            const res = await fetch('/send_message', {
+                method: 'POST',
+                body: formData
+            });
             
-            // Удаляем временное сообщение при ошибке
-            const tempMessages = Array.from(UI.chatBox.querySelectorAll('.temp'));
-            tempMessages.forEach(el => el.remove());
+            if (!res.ok) throw new Error(await res.text());
+
+            // Замена временного сообщения
+            const tempElement = UI.chatBox.querySelector(`[data-id="${tempId}"]`);
+            if (tempElement) {
+                tempElement.classList.remove('temp');
+                tempElement.dataset.id = ''; // Сброс временного ID
+            }
+
+        } catch (error) {
+            // Удаление временного сообщения при ошибке
+            const tempElement = UI.chatBox.querySelector(`[data-id="${tempId}"]`);
+            if (tempElement) tempElement.remove();
+            
+            console.error('Ошибка:', error);
+            alert(`Ошибка отправки: ${error.message}`);
+        }
+        finally {
+            // Очистка формы
+            UI.messageInput.value = '';
+            UI.fileInput.value = '';
+            UI.fileIndicator.style.display = 'none';
+            document.querySelector('.attachment-container')?.remove();
         }
     }
 
-    const messageInput = document.getElementById('message-input');
-
-    messageInput.addEventListener('input', function () {
-        this.style.height = 'auto'; // Сбрасываем высоту
-        this.style.height = (this.scrollHeight) + 'px'; // Устанавливаем новую высоту
+    UI.messageInput.addEventListener('input', function () {
+        this.style.height = 'auto';
+        this.style.height = (this.scrollHeight) + 'px';
     });
 
     // Инициализация высоты при загрузке страницы
     window.addEventListener('load', function () {
-        messageInput.style.height = 'auto';
-        messageInput.style.height = (messageInput.scrollHeight) + 'px';
+        UI.messageInput.style.height = 'auto';
+        UI.messageInput.style.height = (UI.messageInput.scrollHeight) + 'px';
     });
-
-
-        let currentPrivateChat = null;
 
     // Добавим обработчики
     UI.startChatBtn.addEventListener('click', startPrivateChat);
@@ -469,7 +487,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function renderUserSearchResults(users) {
-        UI.privateChatList.innerHTML = users.map(user => `
+        UI.privateChatsList.innerHTML = users.map(user => `
             <div class="user-item" onclick="selectPrivateChat('${user}')">
                 ${user}
             </div>
@@ -553,9 +571,10 @@ document.addEventListener("DOMContentLoaded", function () {
     async function loadPrivateChats() {
         try {
             const res = await fetch('/get_private_chats');
+            if (!res.ok) throw new Error('Network error');
             const data = await res.json();
             console.log('Private chats data:', data);
-            renderPrivateChats(data.chats);
+            renderPrivateChats(data.chats || []); 
         } catch (error) {
             console.error("Error loading private chats:", error);
         }
@@ -578,31 +597,49 @@ document.addEventListener("DOMContentLoaded", function () {
         `).join('');
     }
 
-    async function selectPrivateChat(username) {
-        console.log('Selecting chat with:', username);
-        try {
-            currentPrivateChat = username;
-            currentGroup = null;
-            UI.currentGroupName.textContent = `Чат с ${username}`;
-            UI.chatBox.innerHTML = '';
-            lastTimestamp = 0;
-            
-            await loadPrivateMessages();
-            await loadPrivateChats();
-            
-            // Обновляем выделение
-            document.querySelectorAll('.chat-item').forEach(item => {
-                item.classList.remove('active');
-                if (item.querySelector('span').textContent === username) {
-                    item.classList.add('active');
-                }
-            });
-            
-        } catch (error) {
-            console.error('Error selecting chat:', error);
-        }
-    }
-
     window.selectPrivateChat = selectPrivateChat;
+
+    function updateFileIndicator() {
+        const files = UI.fileInput.files;
+        if (files.length > 0) {
+          UI.fileIndicator.style.display = 'flex';
+          UI.fileCount.textContent = `${files.length} файл(ов)`;
+          showPreviews(files);
+        } else {
+          UI.fileIndicator.style.display = 'none';
+        }
+      }
+      
+      function showPreviews(files) {
+        const container = document.createElement('div');
+        container.className = 'attachment-container';
+        
+        Array.from(files).forEach(file => {
+          if (file.type.startsWith('image/')) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const img = document.createElement('img');
+              img.className = 'attachment-preview';
+              img.src = e.target.result;
+              container.appendChild(img);
+            }
+            reader.readAsDataURL(file);
+          } else {
+            const div = document.createElement('div');
+            div.className = 'attachment-preview';
+            div.textContent = file.name;
+            container.appendChild(div);
+          }
+        });
+      
+        UI.chatBox.appendChild(container);
+      }
+      
+      function clearFiles() {
+        UI.fileInput.value = '';
+        UI.fileIndicator.style.display = 'none';
+        document.querySelector('.attachment-container')?.remove();
+      }
+
 
 });
