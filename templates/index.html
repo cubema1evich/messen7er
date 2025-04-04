@@ -54,11 +54,21 @@
             <span id="current-private-chat"></span>
         </div>
         <div id="chat-box" class="chat-box"></div>
-        <form id="message-form" class="message-form">
+        <div id="loading-indicator" style="display: none;">
+            <div class="spinner"></div>
+            Загрузка сообщений...
+        </div>  
+        <form id="message-form" class="message-form" enctype="multipart/form-data">
             <div class="message-input-container">
+                <div class="file-indicator" id="file-indicator">
+                    <span class="file-count">0 файлов</span>
+                    <button class="clear-files-btn">×</button>
+                </div>
                 <button type="button" id="emoji-btn" class="emoji-btn">😀</button>
+                <input type="file" id="file-input" style="display: none;" multiple>
+                <button type="button" id="file-btn" class="file-btn">📎</button>
                 <textarea id="message-input" placeholder="Введите сообщение..." autocomplete="off" rows="1"></textarea>
-                <button type="submit" class="send-btn">Отправить</button>
+                <button type="submit" class="send-btn" id="send-btn">Отправить</button>
             </div>
             <div id="emoji-picker" class="emoji-picker"></div>
         </form>
