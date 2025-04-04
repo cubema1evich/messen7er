@@ -13,7 +13,6 @@ routes = {
     '/create_group': CreateGroupView,
     '/add_to_group': AddToGroupView,
     '/leave_group': LeaveGroupView,
-    '/add_to_group': AddToGroupView,
     '/get_groups': GetGroupsView,
     '/send_private_message': SendPrivateMessageView,
     '/get_private_messages': GetPrivateMessagesView,
