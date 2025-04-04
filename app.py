@@ -11,9 +11,14 @@ from utils import get_db_cursor
 
 # Создание таблиц в базе данных
 def initialize_database():
+
+    #ПАпка для хранения файлов
+    os.makedirs('static/uploads', exist_ok=True)
+
     """
     Инициализирует базу данных, создавая необходимые таблицы, если они не существуют.
     """
+
     with get_db_cursor() as cursor:
         # Таблица пользователей
         cursor.execute('''
@@ -45,6 +50,18 @@ def initialize_database():
                 created_at INTEGER,
                 FOREIGN KEY(creator_id) REFERENCES users(user_id)
             )
+        ''')
+
+        #Таблица ВЛожений
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS attachments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_type TEXT NOT NULL,
+                message_id INTEGER NOT NULL,
+                file_path TEXT NOT NULL,
+                mime_type TEXT NOT NULL,
+                filename TEXT NOT NULL
+            )               
         ''')
 
         # Создание общего чата, если он не существует
@@ -114,6 +131,22 @@ def app(environ, start_response):
     """
     # Логируем запрос
     url = environ['REQUEST_URI']
+
+    def serve_static(environ, start_response):  # Выносим функцию на верхний уровень
+        file_path = environ['REQUEST_URI'][1:]
+        if not os.path.exists(file_path):
+            start_response('404 Not Found', [('Content-Type', 'text/plain')])
+            return [b'File not found']
+        
+        with open(file_path, 'rb') as f:
+            data = f.read()
+        
+        mime_type = get_mime(file_path)
+        start_response('200 OK', [('Content-Type', mime_type)])
+        return [data]
+
+    if environ['REQUEST_URI'].startswith('/static/uploads/'):
+        return serve_static(environ, start_response)
 
     try:
         # Поиск подходящего представления (view) для обработки запроса
