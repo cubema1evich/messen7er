@@ -3,13 +3,22 @@ import sqlite3
 import json
 import time
 import uuid
+import os 
+import logging
+import hashlib
 
 from urllib.parse import parse_qs
 from mimes import get_mime
 from webob import Request
+from werkzeug.utils import secure_filename
 
 from utils import *
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    filename='app.log'
+)
 
 Response = namedtuple("Response", "status headers data")
 
@@ -82,49 +91,97 @@ class NotFoundView(TemplateView):
 
 class GetMessageView(View):
     def response(self, environ, start_response):
-        query_params = parse_qs(environ.get('QUERY_STRING', ''))
-        timestamp = int(query_params.get('timestamp', [0])[0])
-
-        with get_db_cursor() as cursor:
-            cursor.execute('''
-                SELECT sender, message_text, timestamp 
-                FROM messages 
-                WHERE timestamp > ?
-                ORDER BY timestamp
-            ''', (timestamp,))
+        try:
+            # Парсинг и валидация параметров
+            query_params = parse_qs(environ.get('QUERY_STRING', ''))
+            timestamp = self._parse_timestamp(query_params)
             
-            messages = cursor.fetchall()
+            with get_db_cursor() as cursor:
+                messages = self._fetch_messages(cursor, timestamp)
+                
+            return json_response({
+                'messages': messages,
+                'timestamp': self._get_new_timestamp(messages, timestamp)
+            }, start_response)
+            
+        except ValueError as e:
+            return json_response({'error': str(e)}, start_response, '400 Bad Request')
+        except Exception as e:
+            logging.error(f"GetMessageView error: {str(e)}")
+            return json_response(
+                {'error': 'Internal server error'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )
 
-        formatted_messages = [{
-            'sender': msg[0],
-            'message_text': msg[1],
-            'timestamp': msg[2]
-        } for msg in messages]
+    def _parse_timestamp(self, query_params):
+        try:
+            return int(query_params.get('timestamp', ['0'])[0])
+        except (ValueError, TypeError):
+            raise ValueError("Invalid timestamp format")
 
-        new_timestamp = messages[-1][2] if messages else timestamp
+    def _fetch_messages(self, cursor, timestamp):
+        cursor.execute('''
+            SELECT 
+                m.message_id,
+                m.sender,
+                m.message_text,
+                m.timestamp,
+                a.file_path,
+                a.mime_type,
+                a.filename
+            FROM messages m
+            LEFT JOIN attachments a 
+                ON a.message_id = m.message_id 
+                AND a.message_type = 'general'
+            WHERE m.timestamp > ?
+            ORDER BY m.timestamp, a.id
+        ''', (timestamp,))
         
-        return json_response({
-            'messages': formatted_messages,
-            'timestamp': new_timestamp
-        }, start_response)
-    
-    def get_new_messages_from_db(self, timestamp):
-        conn = sqlite3.connect('data.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT sender, message_text, timestamp FROM messages WHERE timestamp > ?', (timestamp,))
-        messages = cursor.fetchall()
-        conn.close()
+        messages = {}
+        for row in cursor.fetchall():
+            msg_id = row[0]
+            if msg_id not in messages:
+                messages[msg_id] = {
+                    'id': msg_id,
+                    'sender': row[1],
+                    'message_text': row[2],
+                    'timestamp': row[3],
+                    'attachments': []
+                }
+            
+            if row[4]:  # Если есть вложение
+                messages[msg_id]['attachments'].append({
+                    'path': row[4],
+                    'mime_type': row[5],
+                    'filename': row[6]
+                })
+                
+        return list(messages.values())
 
+    def _get_new_timestamp(self, messages, old_timestamp):
         if messages:
-            timestamp = max(msg[2] for msg in messages)
-        else:
-            timestamp = timestamp
+            return max(msg['timestamp'] for msg in messages)
+        return old_timestamp
 
-        formatted_messages = [
-            {'sender': msg[0], 'message_text': msg[1].split(': ', 1)[1]} if msg[0] else {'sender': 'Guest', 'message_text': msg[1].split(': ', 1)[1]} for msg in messages
-        ]
-
-        return formatted_messages, timestamp
+    def get_new_messages_from_db(self, timestamp):
+        """Устаревший метод, рекомендуется использовать response"""
+        try:
+            with get_db_cursor() as cursor:
+                messages = self._fetch_messages(cursor, timestamp)
+                
+            return (
+                [{
+                    'sender': msg['sender'],
+                    'message_text': msg['message_text'],
+                    'timestamp': msg['timestamp'],
+                    'attachments': msg['attachments']
+                } for msg in messages],
+                self._get_new_timestamp(messages, timestamp)
+            )
+        except Exception as e:
+            logging.error(f"get_new_messages_from_db error: {str(e)}")
+            return [], timestamp
 
 class GetUserIdView(View):
     def fetch_user_id_from_database(self, username):
@@ -179,116 +236,126 @@ class GetUserIdView(View):
             start_response(status, headers + [('Set-Cookie', f'user_id={user_id}; Path=/')])
             return [data.encode('utf-8')]
         
+
 class SendMessageView(View):
     def response(self, environ, start_response):
-        """
-        Генерирует HTTP-ответ после отправки сообщения.
-        """
         try:
             request = Request(environ)
             user_id = request.cookies.get('user_id')
             
-            # Получаем данные из запроса
-            content_length = int(environ.get('CONTENT_LENGTH', 0))
-            post_data = json.loads(request.body.decode('utf-8'))
-            
-            message = post_data.get('message', '')
-            group_id = post_data.get('group_id')
-
             if not user_id:
                 return forbidden_response(start_response)
 
+            if request.content_type.startswith('multipart/form-data'):
+                post_data = request.POST
+                files = request.POST.getall('files')
+            else:
+                return json_response(
+                    {'error': 'Invalid content type'}, 
+                    start_response, 
+                    '400 Bad Request'
+                )
+
+            # Остальные параметры
+            message = post_data.get('message', '')
+            group_id = post_data.get('group_id')
+            receiver = post_data.get('receiver')
+
             with get_db_cursor() as cursor:
-                # Получаем имя пользователя
+                # Проверка пользователя
                 cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
                 user = cursor.fetchone()
-                username = user[0] if user else 'Anonymous'
+                if not user:
+                    return forbidden_response(start_response)
+                username = user[0]
 
+                # Сохранение сообщения
                 timestamp = int(time.time())
-                
+                message_id = None
+                message_type = None
+
+                # Определение типа сообщения
                 if group_id:
+                    message_type = 'group'
+                    # Проверка существования группы
+                    cursor.execute('SELECT 1 FROM groups WHERE group_id = ?', (group_id,))
+                    if not cursor.fetchone():
+                        return json_response(
+                            {'error': 'Group not found'}, 
+                            start_response, 
+                            '404 Not Found'
+                        )
                     cursor.execute('''
                         INSERT INTO group_messages 
                         (group_id, user_id, message, timestamp)
                         VALUES (?, ?, ?, ?)
                     ''', (group_id, user_id, message, timestamp))
+                elif receiver:
+                    message_type = 'private'
+                    cursor.execute('SELECT id FROM users WHERE username = ?', (receiver,))
+                    receiver_user = cursor.fetchone()
+                    if not receiver_user:
+                        return json_response(
+                            {'error': 'User not found'}, 
+                            start_response, 
+                            '404 Not Found'
+                        )
+                    cursor.execute('''
+                        INSERT INTO private_messages 
+                        (sender_id, receiver_id, message, timestamp)
+                        VALUES (?, ?, ?, ?)
+                    ''', (user_id, receiver_user[0], message, timestamp))
                 else:
+                    message_type = 'general'
                     cursor.execute('''
                         INSERT INTO messages 
                         (user_id, sender, message_text, timestamp)
                         VALUES (?, ?, ?, ?)
                     ''', (user_id, username, message, timestamp))
                 
+                message_id = cursor.lastrowid
+
+                # Обработка файлов
+                unique_files = set()
+                for file in files:
+                    if file.filename and file.file:
+                        # Проверка дубликатов
+                        file_hash = hashlib.md5(file.file.read()).hexdigest()
+                        file.file.seek(0)
+                        if file_hash in unique_files:
+                            continue
+                        unique_files.add(file_hash)
+
+                        # Сохранение файла
+                        filename = secure_filename(file.filename)
+                        unique_name = f"{uuid.uuid4().hex}_{filename}"
+                        file_path = os.path.join('static', 'uploads', unique_name)
+                        
+                        with open(file_path, 'wb') as f:
+                            f.write(file.file.read())
+                        
+                        # Сохранение в БД
+                        cursor.execute('''
+                            INSERT INTO attachments 
+                            (message_type, message_id, file_path, mime_type, filename)
+                            VALUES (?, ?, ?, ?, ?)
+                        ''', (message_type, message_id, 
+                              f'/static/uploads/{unique_name}', 
+                              file.type, 
+                              filename))
+
                 cursor.connection.commit()
-                return json_response({'status': 'success'}, start_response)
-                
+
+            return json_response({'status': 'success'}, start_response)
+
         except Exception as e:
+            logging.error(f"Error in SendMessageView: {str(e)}", exc_info=True)
             return json_response(
-                {'error': str(e)}, 
+                {'error': 'Internal server error'}, 
                 start_response, 
                 '500 Internal Server Error'
             )
-    
-    def save_message_to_db(self, message, username, timestamp, group_id=None):
-        conn = sqlite3.connect('data.db')
-        cursor = conn.cursor()
         
-        # Получаем ID пользователя
-        cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
-        user_id = cursor.fetchone()[0]
-        
-        if group_id:
-            cursor.execute('''
-                INSERT INTO group_messages 
-                (group_id, user_id, message, timestamp)
-                VALUES (?, ?, ?, ?)
-            ''', (group_id, user_id, message, timestamp))
-        else:
-            cursor.execute('''
-                INSERT INTO messages 
-                (user_id, sender, message_text, timestamp)
-                VALUES (?, ?, ?, ?)
-            ''', (user_id, username, message, timestamp))
-        
-        conn.commit()
-        conn.close()
-
-    def get_message_and_user_from_request(self, environ):
-        try:
-            request_body_size = int(environ.get('CONTENT_LENGTH', 0))
-            request_body = environ['wsgi.input'].read(request_body_size).decode('utf-8')
-
-            parsed_body = json.loads(request_body)
-
-            message = parsed_body.get('message', '')
-            username = parsed_body.get('username', '') or 'Guest'
-
-            if not message or not username:  
-                raise ValueError("Invalid message or username")
-
-            print(f"Received message: {message}, username: {username}")
-
-            return message, username
-        except ValueError as ve:
-            print(f"ValueError: {ve}")
-            return None, None
-        except Exception as e:
-            print(f"Error while extracting message, username, and user_id: {e}")
-            return None, None
-
-
-    def get_nickname_from_database(self, username):
-        conn = sqlite3.connect('data.db')
-        cursor = conn.cursor()
-        cursor.execute('SELECT username FROM users WHERE username=?', (username,))
-        nickname = cursor.fetchone()
-        conn.close()
-
-        if nickname:
-            return nickname[0]
-        else:
-            return None
-
 class RegisterView(TemplateView):
     template = 'templates/register.html'
 
@@ -548,40 +615,74 @@ class GetGroupsView(View):
 
 class GetGroupMessagesView(View):
     def response(self, environ, start_response):
-        request = Request(environ)
-        group_id = request.GET.get('group_id')
-        timestamp = int(request.GET.get('timestamp', 0))  # Добавляем параметр timestamp
-        
-        conn = sqlite3.connect('data.db')
-        cursor = conn.cursor()
-        
-        # Добавляем фильтр по времени и сортировку
-        cursor.execute('''
-            SELECT u.username, gm.message, gm.timestamp, gm.message_id
-            FROM group_messages gm
-            JOIN users u ON gm.user_id = u.id
-            WHERE gm.group_id = ? AND gm.timestamp > ?
-            ORDER BY gm.timestamp
-        ''', (group_id, timestamp))
-        
-        messages = []
-        last_timestamp = timestamp
-        for row in cursor.fetchall():
-            messages.append({
-                'id': row[3],  # Добавляем ID сообщения
-                'sender': row[0],
-                'message_text': row[1],
-                'timestamp': row[2]
-            })
-            last_timestamp = max(last_timestamp, row[2])
-        
-        conn.close()
-        
-        return json_response({
-            'messages': messages,
-            'timestamp': last_timestamp  # Возвращаем новый timestamp
-        }, start_response)
-    
+        try:
+            request = Request(environ)
+            group_id = request.GET.get('group_id')
+            timestamp = int(request.GET.get('timestamp', 0))
+            user_id = request.cookies.get('user_id')
+
+            if not user_id:
+                return forbidden_response(start_response)
+
+            with get_db_cursor() as cursor:
+                # Проверка членства в группе
+                cursor.execute('''
+                    SELECT 1 FROM group_members 
+                    WHERE group_id = ? AND user_id = ?
+                ''', (group_id, user_id))
+                if not cursor.fetchone():
+                    return forbidden_response(start_response)
+
+                cursor.execute('''
+                    SELECT 
+                        gm.message_id,
+                        u.username,
+                        gm.message,
+                        gm.timestamp,
+                        a.file_path,
+                        a.mime_type,
+                        a.filename
+                    FROM group_messages gm
+                    JOIN users u ON gm.user_id = u.id
+                    LEFT JOIN attachments a 
+                        ON a.message_id = gm.message_id 
+                        AND a.message_type = 'group'
+                    WHERE gm.group_id = ? AND gm.timestamp > ?
+                    ORDER BY gm.timestamp
+                ''', (group_id, timestamp))
+                
+                messages = {}
+                for row in cursor.fetchall():
+                    msg_id = row[0]
+                    if msg_id not in messages:
+                        messages[msg_id] = {
+                            'id': msg_id,
+                            'sender': row[1],
+                            'message_text': row[2],
+                            'timestamp': row[3],
+                            'attachments': []
+                        }
+                    
+                    if row[4]:  # Если есть вложение
+                        messages[msg_id]['attachments'].append({
+                            'path': row[4],
+                            'mime_type': row[5],
+                            'filename': row[6]
+                        })
+                
+                return json_response({
+                    'messages': list(messages.values()),
+                    'timestamp': max([msg['timestamp'] for msg in messages.values()] or [timestamp])
+                }, start_response)
+
+        except Exception as e:
+            logging.error(f"GetGroupMessages error: {str(e)}")
+            return json_response(
+                {'error': 'Internal server error'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )
+            
 class GetGroupNameView(View):
     def response(self, environ, start_response):
         group_id = Request(environ).GET.get('group_id')
@@ -698,15 +799,18 @@ class GetPrivateMessagesView(View):
                     return json_response({'error': 'User not found'}, start_response, '404 Not Found')
                 other_user_id = result[0]
 
-                # Исправленный SQL-запрос
                 cursor.execute('''
                     SELECT 
                         pm.id,
                         pm.message,
                         u.username,
-                        pm.timestamp
+                        pm.timestamp,
+                        a.file_path, 
+                        a.mime_type, 
+                        a.filename
                     FROM private_messages pm
                     JOIN users u ON pm.sender_id = u.id
+                    LEFT JOIN attachments a ON a.message_id = pm.id AND a.message_type = 'private'
                     WHERE 
                         (pm.sender_id = ? AND pm.receiver_id = ?)
                         OR 
