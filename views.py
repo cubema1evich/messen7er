@@ -132,11 +132,9 @@ class GetMessageView(View):
                 a.mime_type,
                 a.filename
             FROM messages m
-            LEFT JOIN attachments a 
-                ON a.message_id = m.message_id 
-                AND a.message_type = 'general'
+            LEFT JOIN attachments a ON a.message_id = m.message_id AND a.message_type = 'general'
             WHERE m.timestamp > ?
-            ORDER BY m.timestamp, a.id
+            ORDER BY m.timestamp
         ''', (timestamp,))
         
         messages = {}
@@ -243,107 +241,122 @@ class SendMessageView(View):
         try:
             request = Request(environ)
             user_id = request.cookies.get('user_id')
+
+            
             
             if not user_id:
                 return forbidden_response(start_response)
 
             if request.content_type.startswith('multipart/form-data'):
                 post_data = request.POST
-                files = request.POST.getall('files')
+                files = request.POST.getall('files')  # Получаем файлы
+                message = post_data.get('message', '').strip()  # Получаем текст
             else:
                 return json_response(
                     {'error': 'Invalid content type'}, 
                     start_response, 
                     '400 Bad Request'
                 )
+            
+            # Не сохраняем если нет ни текста, ни файлов
+            if not message and not files:
+                return json_response({'status': 'nothing to save'}, start_response)
 
-            # Остальные параметры
-            message = post_data.get('message', '')
+            message = post_data.get('message', '').strip()
             group_id = post_data.get('group_id')
             receiver = post_data.get('receiver')
 
+
             with get_db_cursor() as cursor:
-                # Проверка пользователя
                 cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
                 user = cursor.fetchone()
                 if not user:
                     return forbidden_response(start_response)
                 username = user[0]
 
-                # Сохранение сообщения
                 timestamp = int(time.time())
                 message_id = None
                 message_type = None
 
-                # Определение типа сообщения
-                if group_id:
-                    message_type = 'group'
-                    # Проверка существования группы
-                    cursor.execute('SELECT 1 FROM groups WHERE group_id = ?', (group_id,))
-                    if not cursor.fetchone():
-                        return json_response(
-                            {'error': 'Group not found'}, 
-                            start_response, 
-                            '404 Not Found'
-                        )
-                    cursor.execute('''
-                        INSERT INTO group_messages 
-                        (group_id, user_id, message, timestamp)
-                        VALUES (?, ?, ?, ?)
-                    ''', (group_id, user_id, message, timestamp))
-                elif receiver:
-                    message_type = 'private'
-                    cursor.execute('SELECT id FROM users WHERE username = ?', (receiver,))
-                    receiver_user = cursor.fetchone()
-                    if not receiver_user:
-                        return json_response(
-                            {'error': 'User not found'}, 
-                            start_response, 
-                            '404 Not Found'
-                        )
-                    cursor.execute('''
-                        INSERT INTO private_messages 
-                        (sender_id, receiver_id, message, timestamp)
-                        VALUES (?, ?, ?, ?)
-                    ''', (user_id, receiver_user[0], message, timestamp))
-                else:
-                    message_type = 'general'
-                    cursor.execute('''
-                        INSERT INTO messages 
-                        (user_id, sender, message_text, timestamp)
-                        VALUES (?, ?, ?, ?)
-                    ''', (user_id, username, message, timestamp))
-                
-                message_id = cursor.lastrowid
-
-                # Обработка файлов
-                unique_files = set()
-                for file in files:
-                    if file.filename and file.file:
-                        # Проверка дубликатов
-                        file_hash = hashlib.md5(file.file.read()).hexdigest()
-                        file.file.seek(0)
-                        if file_hash in unique_files:
-                            continue
-                        unique_files.add(file_hash)
-
-                        # Сохранение файла
-                        filename = secure_filename(file.filename)
-                        unique_name = f"{uuid.uuid4().hex}_{filename}"
-                        file_path = os.path.join('static', 'uploads', unique_name)
-                        
-                        with open(file_path, 'wb') as f:
-                            f.write(file.file.read())
-                        
-                        # Сохранение в БД
+                # Сохраняем сообщение только если есть текст ИЛИ файлы
+                if message or files:
+                    if group_id:
+                        # Групповое сообщение
                         cursor.execute('''
-                            INSERT INTO attachments 
-                            (message_type, message_id, file_path, mime_type, filename)
-                            VALUES (?, ?, ?, ?, ?)
-                        ''', (message_type, message_id, 
-                              f'/static/uploads/{unique_name}', 
-                              file.type, 
-                              filename))
+                            INSERT INTO group_messages 
+                            (group_id, user_id, message_text, timestamp)
+                            VALUES (?, ?, ?, ?)
+                        ''', (group_id, user_id, message, timestamp))
+                        message_type = 'group'
+                        message_id = cursor.lastrowid
+                        
+                    elif receiver:
+                        # Личное сообщение
+                        cursor.execute('SELECT id FROM users WHERE username = ?', (receiver,))
+                        receiver_user = cursor.fetchone()
+                        if not receiver_user:
+                            return json_response({'error': 'User not found'}, start_response, '404 Not Found')
+                            
+                        cursor.execute('''
+                            INSERT INTO private_messages 
+                            (sender_id, receiver_id, message_text, timestamp)
+                            VALUES (?, ?, ?, ?)
+                        ''', (user_id, receiver_user[0], message, timestamp))
+                        message_type = 'private'
+                        message_id = cursor.lastrowid
+                        
+                    else:
+                        # Общее сообщение
+                        cursor.execute('''
+                            INSERT INTO messages 
+                            (user_id, sender, message_text, timestamp)
+                            VALUES (?, ?, ?, ?)
+                        ''', (user_id, username, message, timestamp))
+                        message_type = 'general'
+                        message_id = cursor.lastrowid
+
+                    # Обработка файлов (только если есть файлы и сообщение было сохранено)
+                    if files and message_id:
+                        unique_files = set()
+                        for file in files:
+                            if file.filename and file.file:
+                                file_content = file.file.read()
+                                file_hash = hashlib.md5(file_content).hexdigest()
+                                file.file.seek(0)
+
+                                # Проверка на дубликаты
+                                cursor.execute('''
+                                    SELECT id FROM attachments 
+                                    WHERE file_path = ? AND message_type = ?
+                                ''', (f'/static/uploads/{file_hash}_{secure_filename(file.filename)}', message_type))
+                                
+                                if cursor.fetchone():
+                                    continue
+                                
+                                if file_hash in unique_files:
+                                    continue
+                                unique_files.add(file_hash)
+
+                                filename = secure_filename(file.filename)
+                                unique_name = f"{file_hash}_{filename}"
+                                file_path = os.path.join('static', 'uploads', unique_name)
+                                
+                                if not os.path.exists(file_path):
+                                    with open(file_path, 'wb') as f:
+                                        f.write(file.file.read())
+                                
+                                cursor.execute('''
+                                    INSERT INTO attachments 
+                                    (message_type, message_id, file_path, mime_type, filename)
+                                    VALUES (?, ?, ?, ?, ?)
+                                ''', (message_type, message_id, 
+                                    f'/static/uploads/{unique_name}', 
+                                    file.type, 
+                                    filename))
+                                
+                                if files and message_id and not unique_files:
+                                    cursor.connection.rollback()
+                                    return json_response({'error': 'No files to save'}, start_response, '400 Bad Request')
 
                 cursor.connection.commit()
 
@@ -356,7 +369,7 @@ class SendMessageView(View):
                 start_response, 
                 '500 Internal Server Error'
             )
-        
+                    
 class RegisterView(TemplateView):
     template = 'templates/register.html'
 
@@ -638,7 +651,7 @@ class GetGroupMessagesView(View):
                     SELECT 
                         gm.message_id,
                         u.username,
-                        gm.message,
+                        gm.message_text,
                         gm.timestamp,
                         a.file_path,
                         a.mime_type,
@@ -766,7 +779,7 @@ class SendPrivateMessageView(View):
                 # Сохраняем сообщение
                 cursor.execute('''
                     INSERT INTO private_messages 
-                    (sender_id, receiver_id, message, timestamp)
+                    (sender_id, receiver_id, message_text, timestamp)
                     VALUES (?, ?, ?, ?)
                 ''', (user_id, receiver_id, message, timestamp))
                 
@@ -803,7 +816,7 @@ class GetPrivateMessagesView(View):
                 cursor.execute('''
                     SELECT 
                         pm.id,
-                        pm.message,
+                        pm.message_text,
                         u.username,
                         pm.timestamp,
                         a.file_path, 
