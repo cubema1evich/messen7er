@@ -87,7 +87,7 @@ def initialize_database():
                 message_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 group_id INTEGER,
                 user_id INTEGER,
-                message TEXT,
+                message_text TEXT,
                 timestamp INTEGER
             )
         ''')
@@ -97,7 +97,7 @@ def initialize_database():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 sender_id INTEGER NOT NULL,
                 receiver_id INTEGER NOT NULL,
-                message TEXT NOT NULL,
+                message_text TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
                 FOREIGN KEY(sender_id) REFERENCES users(id),
                 FOREIGN KEY(receiver_id) REFERENCES users(id)
