@@ -44,6 +44,7 @@ class View:
         file_name = self.path + self.url
         headers = [('Content-type', get_mime(file_name))]
 
+
         try:
             data = self.read_file(file_name[1:])
             status = '200 OK'
