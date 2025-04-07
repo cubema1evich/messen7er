@@ -23,6 +23,10 @@
         <div class="groups-toggle">
             <button id="sidebar-toggle" class="sidebar-toggle-btn">☰ Группы</button>
         </div>
+        <div class="user-panel" id="user-info">
+            <span class="username">Вы вошли как: <span id="current-user"></span></span>
+            <button onclick="logout()" class="logout-btn">Выйти</button>
+        </div>
     </div>
 </header>
     <aside class="sidebar">
@@ -45,10 +49,6 @@
             <div id="private-chats-list" class="private-chats-list"></div>
         </div>
         <!--<iframe width="110" height="200" src="https://www.myinstants.com/instant/ima-make-u-pop-like-that-18071/embed/" frameborder="0" scrolling="no" style="padding: inherit;margin: 60px;"></iframe>-->
-        <div class="user-panel" id="user-info">
-            <span class="username">Вы вошли как: <span id="current-user"></span></span>
-            <button onclick="logout()" class="logout-btn">Выйти</button>
-        </div>
     </aside>
 
     <main class="chat-container">
@@ -69,7 +69,7 @@
                 </div>
                 <button type="button" id="emoji-btn" class="emoji-btn">😀</button>
                 <input type="file" id="file-input" style="display: none;" multiple>
-                <button type="button" id="file-btn" class="file-btn">📎</button>
+                <button type="button" id="file-btn" class="file-btn" style="font-size: 50px">📎</button>
                 <textarea id="message-input" placeholder="Введите сообщение..." autocomplete="off" rows="1"></textarea>
                 <button type="submit" class="send-btn" id="send-btn">Отправить</button>
             </div>
