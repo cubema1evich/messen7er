@@ -2,23 +2,22 @@ import os
 import re
 import sqlite3
 import time
+import logging  
 
 from routes import routes
 from mimes import get_mime
-from views import NotFoundView
+from views import NotFoundView, InternalServerErrorView  
 from utils import get_db_cursor
 
 
 # Создание таблиц в базе данных
 def initialize_database():
-
-    #ПАпка для хранения файлов
+    # Папка для хранения файлов
     os.makedirs('static/uploads', exist_ok=True)
 
     """
     Инициализирует базу данных, создавая необходимые таблицы, если они не существуют.
     """
-
     with get_db_cursor() as cursor:
         # Таблица пользователей
         cursor.execute('''
@@ -52,7 +51,7 @@ def initialize_database():
             )
         ''')
 
-        #Таблица ВЛожений
+        # Таблица ВKожений
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS attachments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,6 +91,7 @@ def initialize_database():
             )
         ''')
 
+        #Таблица личных сообщегий
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS private_messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -121,6 +121,20 @@ def load(file_name):
         data = f.read()
     return data
 
+def serve_static(environ, start_response):
+    """Обработка статических файлов."""
+    file_path = environ['REQUEST_URI'][1:]
+    if not os.path.exists(file_path):
+        start_response('404 Not Found', [('Content-Type', 'text/plain')])
+        return [b'File not found']
+    
+    with open(file_path, 'rb') as f:
+        data = f.read()
+    
+    mime_type = get_mime(file_path)
+    start_response('200 OK', [('Content-Type', mime_type)])
+    return [data]
+
 def app(environ, start_response):
     """
     Основная функция приложения.
@@ -131,38 +145,24 @@ def app(environ, start_response):
     """
     # Логируем запрос
     url = environ['REQUEST_URI']
-
-    def serve_static(environ, start_response):  # Выносим функцию на верхний уровень
-        file_path = environ['REQUEST_URI'][1:]
-        if not os.path.exists(file_path):
-            start_response('404 Not Found', [('Content-Type', 'text/plain')])
-            return [b'File not found']
-        
-        with open(file_path, 'rb') as f:
-            data = f.read()
-        
-        mime_type = get_mime(file_path)
-        start_response('200 OK', [('Content-Type', mime_type)])
-        return [data]
-
+    
+    # Обработка статических файлов
     if environ['REQUEST_URI'].startswith('/static/uploads/'):
         return serve_static(environ, start_response)
 
     try:
-        # Поиск подходящего представления (view) для обработки запроса
         view = None
         for key in routes.keys():
             if re.match(key, url) is not None:
                 view = routes[key](url)
                 break
 
-        # Если представление не найдено, используем NotFoundView
         if view is None:
             view = NotFoundView(url)
 
-        # Генерация HTTP-ответа
-        resp = view.response(environ, start_response)
-        return resp
-
+        return view.response(environ, start_response)
+        
     except Exception as e:
-        raise
+        logging.error(f"Server error: {str(e)}", exc_info=True)
+        error_view = InternalServerErrorView('/500')
+        return error_view.response(environ, start_response)

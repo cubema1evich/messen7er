@@ -161,6 +161,20 @@ document.addEventListener("DOMContentLoaded", function () {
             }
     
             const res = await fetch(url);
+            
+            if (res.status === 404) {
+                window.location.href = '/404';
+                return;
+            }
+            if (res.status === 403) {
+                window.location.href = '/403';
+                return;
+            }
+            if (res.status === 500) {
+                window.location.href = '/500';
+                return;
+            }
+            
             if (!res.ok) {
                 const errorData = await res.json().catch(() => ({}));
                 throw new Error(errorData.error || `HTTP error! status: ${res.status}`);
@@ -178,6 +192,13 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         } catch (error) {
             console.error("Error loading messages:", error);
+            if (error.message.includes('404')) {
+                window.location.href = '/404';
+            } else if (error.message.includes('403')) {
+                window.location.href = '/403';
+            } else {
+                window.location.href = '/500';
+            }
         }
     }
 
