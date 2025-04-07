@@ -283,8 +283,17 @@ margin-top: 30px;
 }
 
 .group-item.active {
-    background: var(--primary);
     font-weight: 600;
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: currentColor;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.group-item:hover::after {
+    opacity: 0.08;
 }
 
 /* Кнопки */
@@ -299,6 +308,10 @@ button {
     cursor: pointer;
     transform: scale(0.96);
 
+}
+
+button:active {
+    transform: scale(0.96);
 }
 
 button:hover {
