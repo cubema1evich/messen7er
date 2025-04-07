@@ -14,16 +14,17 @@
             window.location.href = '/login';
         }
     </script>
-    <header class="header">
+   <header class="header">
+    <div class="header-buttons-container">
         <div class="auth-buttons" id="auth-buttons">
             <button onclick="window.location.href='/register'" class="auth-btn">Регистрация</button>
             <button onclick="window.location.href='/login'" class="auth-btn">Вход</button>
         </div>
-    </header>
-  
-    <div class="groups-toggle">
-        <button id="sidebar-toggle" class="sidebar-toggle-btn">☰ Группы</button>
+        <div class="groups-toggle">
+            <button id="sidebar-toggle" class="sidebar-toggle-btn">☰ Группы</button>
+        </div>
     </div>
+</header>
     <aside class="sidebar">
         <div class="sidebar-header">  
             <h3 class="sidebar-title">Мои группы</h3>
@@ -76,6 +77,6 @@
         </form>
     </main>
     <script src="/static/app.js"></script>
-    
+
 </body>
 </html>
