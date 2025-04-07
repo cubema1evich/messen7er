@@ -193,30 +193,47 @@ margin-top: 30px;
 
 
 .user-panel {
-    padding: 20px;
-    background: rgba(255,255,255,0.9);
-    border-top: 1px solid #eee;
-    margin-top: auto;
-    display: none; /* По умолчанию скрыто */
+    display: none;
     flex-direction: column;
-    gap: 10px;
-    margin: 40px;
-    border-radius: 15px;
-    background-color: Snow;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    background: rgba(255, 255, 255, 0.9);
+    padding: 10px 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    position: absolute;
+    right: 0;
+    top: 100%;
+    min-width: 200px;
+    z-index: 100;
 }
 
 .user-panel.active {
-    display: flex; /* Показываем при наличии класса active */
+    display: flex;
 }
 
+.username {
+    font-weight: bold;
+    color: #5A3A3A;
+    margin-bottom: 8px;
+    white-space: nowrap;
+}
 
 .logout-btn {
     background: var(--secondary);
     color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.3s;
     width: 100%;
-    padding: 8px;
+    font-size: 14px;
 }
+
+.logout-btn:hover {
+    background: #FF9BAF;
+}
+
+
 .groups-list-container {
     display: flex;
     flex-direction: column;
@@ -255,14 +272,14 @@ margin-top: 30px;
 
 .group-item:hover {
 
-    transform: scale(1.05) translateX(5%); /* Умеренный эффект */
+    transform: scale(1.05) translateX(2%); /* Умеренный эффект */
     transition: transform 0.2s ease;
     background: white;
     box-shadow: 0 5px 15px rgba(0,0,0,0.1);
 }
 
 .group-item.active {
-    background: var(--primary);
+    background: #FFB6C1;;
     font-weight: 600;
 }
 
@@ -556,24 +573,13 @@ h2, h3 {
     margin: 4px 0;
     border-radius: 4px;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     justify-content: space-between;
     align-items: center;
-}
-
-.chat-item:hover {
     background: #f5f5f5;
 }
 
-.chat-item.active {
-    background: #2196F3;
-    color: white;
-}
-
-.chat-item.active small {
-    color: #e0e0e0;
-}
 
 .user-item {
     padding: 10px;
@@ -594,29 +600,29 @@ h2, h3 {
     padding: 10px;
 }
 
-.chat-item {
-    padding: 8px;
-    margin: 4px 0;
-    border-radius: 4px;
-    cursor: pointer;
-    background: #f5f5f5;
-    display: flex;
-    justify-content: space-between;
-}
-
 .chat-item:hover {
-    background: #e0e0e0;
+    background: #FB9F9F;; /* Цвет как у кнопки отправки */
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 5px 12px rgba(255,182,193,0.3); /* Тень как у кнопки */
 }
 
 .chat-item.active {
-    background: #2196F3;
+    background: #FB9F9F;;
     color: white;
+    font-weight: bold;
 }
 
 .chat-item small {
     color: #666;
     font-size: 0.8em;
     opacity: 0.8;
+    transition: color 0.3s;
+}
+
+.chat-item:hover small,
+.chat-item.active small {
+    color: #e0e0e0;
 }
 
 .message-header {
@@ -773,6 +779,7 @@ cursor: pointer;
     display: flex;
     gap: 10px;
     justify-content: flex-end;
+    transition: all 0.3s ease;
 }
 
 
@@ -781,4 +788,11 @@ cursor: pointer;
     background: #FF9BAF;
     transform: translateX(-5px) scale(1.05);
     box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+}
+
+.header-buttons-container {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    position: relative;
 }
