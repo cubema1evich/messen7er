@@ -52,6 +52,9 @@
     </aside>
 
     <main class="chat-container">
+        <div class="search-container">
+            <button id="search-btn" class="search-btn">🔍 Поиск</button>
+        </div>
         <div id="current-chat-info">
             <span id="current-group-name"></span>
             <span id="current-private-chat"></span>
@@ -77,6 +80,27 @@
         </form>
     </main>
     <script src="/static/app.js"></script>
-
+    <div id="search-modal" class="modal">
+        <div class="modal-content">
+            <div class="search-context" style="margin-bottom: 10px; font-style: italic;"></div>
+            <span class="close-modal">&times;</span>
+            <h2>Поиск сообщений</h2>
+            <div class="search-input-container">
+                <input type="text" id="search-input" placeholder="Введите текст для поиска...">
+                <button id="execute-search">Найти</button>
+            </div>
+            <div class="search-options">
+                <label>
+                    Сортировка:
+                    <select id="search-sort">
+                        <option value="relevance">По релевантности</option>
+                        <option value="date">По дате</option>
+                    </select>
+                </label>
+            </div>
+            <div id="search-results" class="search-results"></div>
+            <div class="search-pagination" id="search-pagination"></div>
+        </div>
+    </div>
 </body>
 </html>

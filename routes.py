@@ -18,6 +18,7 @@ routes = {
     '/get_private_messages': GetPrivateMessagesView,
     '/search_users': SearchUsersView,
     '/get_private_chats': GetPrivateChatsView,
+    '/search_messages': SearchMessagesView,
     r'^/404$': NotFoundView,
     r'^/403$': ForbiddenView,
     r'^/500$': InternalServerErrorView

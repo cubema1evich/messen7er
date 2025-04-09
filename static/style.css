@@ -225,3 +225,71 @@ button:hover { background: #FF9BAF; transform: translateY(-2px); box-shadow: 0 5
     .groups-toggle { top: 15px; left: 15px; border-radius: 0 0 12px 12px; }
     .sidebar-toggle-btn { padding: 8px 20px !important; font-size: 14px !important; border-radius: 0 0 12px 12px !important; }
 }
+
+/* Стили для поиска */
+.search-btn {
+    background: none !important; color: var(--text) !important; 
+    border: 1px solid var(--secondary) !important; padding: 8px 15px !important;
+    margin-left: 10px; transition: all 0.3s ease;
+}
+.search-btn:hover { background: var(--secondary) !important; color: white !important; }
+
+.modal {
+    display: none; position: fixed; z-index: 2000; left: 0; top: 0; 
+    width: 100%; height: 100%; background-color: rgba(0,0,0,0.7);
+}
+.modal-content {
+    background-color: #fefefe; margin: 5% auto; padding: 25px; 
+    border-radius: 15px; width: 80%; max-width: 800px; box-shadow: 0 5px 30px rgba(0,0,0,0.3);
+}
+.close-modal {
+    color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;
+}
+.close-modal:hover { color: black; }
+
+.search-input-container {
+    display: flex; gap: 10px; margin: 20px 0;
+}
+#search-input {
+    flex-grow: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px;
+}
+
+.search-results {
+    max-height: 60vh; overflow-y: auto; margin: 20px 0; border-top: 1px solid #eee; padding-top: 15px;
+}
+.search-result-item {
+    padding: 15px; margin-bottom: 15px; background: white; border-radius: 8px; 
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 4px solid var(--secondary);
+}
+.search-result-sender {
+    font-weight: bold; color: var(--text); margin-bottom: 5px;
+}
+.search-result-text {
+    margin: 5px 0; color: #333;
+}
+.search-result-snippet {
+    font-style: italic; color: #666; margin-top: 5px; font-size: 0.9em;
+}
+.search-result-time {
+    color: #95a5a6; font-size: 0.8em; text-align: right;
+}
+
+.search-pagination {
+    display: flex; justify-content: center; gap: 5px; margin-top: 20px;
+}
+.page-btn {
+    padding: 5px 10px; border: 1px solid #ddd; background: white; cursor: pointer;
+    border-radius: 3px; transition: all 0.2s;
+}
+.page-btn:hover { background: #f0f0f0; }
+.page-btn.active { background: var(--secondary); color: white; border-color: var(--secondary); }
+
+.highlight {
+    animation: highlight 2s ease;
+    box-shadow: 0 0 0 2px var(--secondary);
+}
+
+@keyframes highlight {
+    0% { background-color: rgba(255, 182, 193, 0.5); }
+    100% { background-color: rgba(255, 182, 193, 0); }
+}

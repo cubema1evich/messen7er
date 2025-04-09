@@ -16,6 +16,16 @@ document.addEventListener("DOMContentLoaded", function () {
     let currentPrivateChat = null; 
     let lastTimestamp = 0;
 
+    let currentSearch = {
+        query: '',
+        type: 'general',
+        chatId: null,
+        page: 1,
+        perPage: 20,
+        sort: 'relevance',
+        total: 0
+    };
+
     // Элементы интерфейса
     const UI = {
         chatBox: document.getElementById("chat-box"),
@@ -389,6 +399,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
 
     function setupEventListeners() {
+        document.getElementById('search-btn').addEventListener('click', openSearchModal);
+        document.getElementById('execute-search').addEventListener('click', executeSearch);
+        document.querySelector('.close-modal').addEventListener('click', closeSearchModal);
+
         UI.createGroupBtn.addEventListener("click", createGroup);
         
         document.addEventListener('click', function(e) {
@@ -676,4 +690,227 @@ document.addEventListener("DOMContentLoaded", function () {
       }
 
 
+      function openSearchModal() {
+        const modal = document.getElementById('search-modal');
+        modal.style.display = 'block';
+
+        if (currentPrivateChat) {
+            // Для личных сообщений используем username собеседника
+            currentSearch.type = 'private';
+            currentSearch.chatId = currentPrivateChat;  // Сохраняем username, а не ID
+            document.querySelector('.search-context').textContent = 
+                `Поиск в переписке с ${currentPrivateChat}`;
+        }
+        
+        // Сбрасываем предыдущий поиск
+        document.getElementById('search-input').value = '';
+        document.getElementById('search-results').innerHTML = '';
+        document.getElementById('search-pagination').innerHTML = '';
+        
+        // Определяем текущий контекст поиска
+        fetch('/get_user_id')
+            .then(response => {
+                if (!response.ok) throw new Error('Failed to get user info');
+                return response.json();
+            })
+            .then(data => {
+                if (!data.user_id) {
+                    throw new Error('User not authenticated');
+                }
+                
+                if (currentGroup) {
+                    currentSearch.type = 'group';
+                    currentSearch.chatId = currentGroup;
+                    document.querySelector('.search-context').textContent = 
+                        `Поиск в группе "${document.getElementById('current-group-name').textContent}"`;
+                } 
+                else if (currentPrivateChat) {
+                    currentSearch.type = 'private';
+                    // Используем username из ответа сервера
+                    currentSearch.chatId = data.user_id;
+                    document.querySelector('.search-context').textContent = 
+                        `Поиск в личной переписке с ${currentPrivateChat}`;
+                } 
+                else {
+                    currentSearch.type = 'general';
+                    currentSearch.chatId = null;
+                    document.querySelector('.search-context').textContent = 'Поиск в общем чате';
+                }
+            })
+            .catch(error => {
+                console.error('Error getting user info:', error);
+                alert('Ошибка при определении контекста поиска');
+                closeSearchModal();
+            });
+    }
+    
+    function closeSearchModal() {
+        document.getElementById('search-modal').style.display = 'none';
+    }
+    
+    function executeSearch() {
+        const searchInput = document.getElementById('search-input');
+        const sortSelect = document.getElementById('search-sort');
+        
+        currentSearch.query = searchInput.value.trim();
+        currentSearch.sort = sortSelect.value;
+        currentSearch.page = 1;
+        
+        if (!currentSearch.query) {
+            alert('Введите текст для поиска');
+            return;
+        }
+        
+        performSearch();
+    }
+    
+    function performSearch() {
+        const resultsContainer = document.getElementById('search-results');
+        resultsContainer.innerHTML = '<div class="spinner"></div>';
+        
+        // Создаем URL с параметрами поиска
+        const url = new URL('/search_messages', window.location.origin);
+        url.searchParams.set('q', currentSearch.query);
+        url.searchParams.set('type', currentSearch.type);
+        
+        // Для личных сообщений используем username собеседника
+        if (currentSearch.type === 'private' && currentPrivateChat) {
+            url.searchParams.set('chat_id', currentPrivateChat);
+        } 
+        // Для групп используем ID группы
+        else if (currentSearch.type === 'group' && currentGroup) {
+            url.searchParams.set('chat_id', currentGroup);
+        }
+        
+        // Общие параметры
+        url.searchParams.set('page', currentSearch.page);
+        url.searchParams.set('per_page', currentSearch.perPage);
+        url.searchParams.set('sort', currentSearch.sort);
+    
+        fetch(url)
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => {
+                        throw new Error(err.error || 'Search failed');
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.messages.length === 0) {
+                    resultsContainer.innerHTML = `
+                        <p>Сообщений не найдено</p>
+                        <p class="search-context">
+                            Поиск в ${getSearchContextString()}
+                        </p>
+                    `;
+                    document.getElementById('search-pagination').innerHTML = '';
+                    return;
+                }
+                
+                resultsContainer.innerHTML = `
+                    <p class="search-context">
+                        Найдено ${data.total} сообщений в ${getSearchContextString()}
+                    </p>
+                    ${data.messages.map(msg => `
+                        <div class="search-result-item" data-id="${msg.id}">
+                            <div class="search-result-header">
+                                <span class="sender">${msg.sender}</span>
+                                <span class="time">${new Date(msg.timestamp * 1000).toLocaleString()}</span>
+                            </div>
+                            <div class="search-result-text">${msg.text}</div>
+                        </div>
+                    `).join('')}
+                `;
+                
+                renderPagination(data.total, data.per_page, data.page);
+            })
+            .catch(error => {
+                console.error('Search error:', error);
+                resultsContainer.innerHTML = `
+                    <p class="error">Ошибка поиска: ${error.message}</p>
+                    <p class="search-context">${getSearchContextString()}</p>
+                    <button onclick="performSearch()">Повторить</button>
+                `;
+            });
+    
+        // Вспомогательная функция для отображения контекста поиска
+        function getSearchContextString() {
+            if (currentSearch.type === 'private' && currentPrivateChat) {
+                return `переписке с ${currentPrivateChat}`;
+            } else if (currentSearch.type === 'group' && currentGroup) {
+                return `группе "${document.getElementById('current-group-name').textContent}"`;
+            }
+            return 'общем чате';
+        }
+    }
+    
+    function renderPagination(total, perPage, currentPage) {
+        const paginationContainer = document.getElementById('search-pagination');
+        const totalPages = Math.ceil(total / perPage);
+        
+        if (totalPages <= 1) {
+            paginationContainer.innerHTML = '';
+            return;
+        }
+        
+        let html = '';
+        const maxVisiblePages = 5;
+        let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+        let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+        
+        if (endPage - startPage + 1 < maxVisiblePages) {
+            startPage = Math.max(1, endPage - maxVisiblePages + 1);
+        }
+        
+        // Кнопка "Назад"
+        if (currentPage > 1) {
+            html += `<button class="page-btn" onclick="changeSearchPage(${currentPage - 1})">&lt;</button>`;
+        }
+        
+        // Первая страница
+        if (startPage > 1) {
+            html += `<button class="page-btn" onclick="changeSearchPage(1)">1</button>`;
+            if (startPage > 2) {
+                html += `<span class="page-dots">...</span>`;
+            }
+        }
+        
+        // Основные страницы
+        for (let i = startPage; i <= endPage; i++) {
+            html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="changeSearchPage(${i})">${i}</button>`;
+        }
+        
+        // Последняя страница
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                html += `<span class="page-dots">...</span>`;
+            }
+            html += `<button class="page-btn" onclick="changeSearchPage(${totalPages})">${totalPages}</button>`;
+        }
+        
+        // Кнопка "Вперед"
+        if (currentPage < totalPages) {
+            html += `<button class="page-btn" onclick="changeSearchPage(${currentPage + 1})">&gt;</button>`;
+        }
+        
+        paginationContainer.innerHTML = html;
+    }
+    
+    function changeSearchPage(newPage) {
+        currentSearch.page = newPage;
+        performSearch();
+        document.getElementById('search-results').scrollTop = 0;
+    }
+    
+    function scrollToMessage(messageId) {
+        const messageElement = document.querySelector(`.message[data-id="${messageId}"]`);
+        if (messageElement) {
+            messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            messageElement.classList.add('highlight');
+            setTimeout(() => messageElement.classList.remove('highlight'), 2000);
+        }
+    }
+    
+    window.changeSearchPage = changeSearchPage;
 });

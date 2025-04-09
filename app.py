@@ -91,7 +91,7 @@ def initialize_database():
             )
         ''')
 
-        #Таблица личных сообщегий
+        #Таблица личных сообщений
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS private_messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,6 +102,19 @@ def initialize_database():
                 FOREIGN KEY(sender_id) REFERENCES users(id),
                 FOREIGN KEY(receiver_id) REFERENCES users(id)
             )
+        ''')
+
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_messages_text_nocase 
+            ON messages(message_text COLLATE NOCASE)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_private_messages_text_nocase 
+            ON private_messages(message_text COLLATE NOCASE)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_group_messages_text_nocase 
+            ON group_messages(message_text COLLATE NOCASE)
         ''')
 
         # Фиксируем изменения в базе данных
