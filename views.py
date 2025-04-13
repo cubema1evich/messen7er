@@ -6,6 +6,7 @@ import uuid
 import os 
 import logging
 import hashlib
+import re
 
 from urllib.parse import parse_qs
 from mimes import get_mime
@@ -428,26 +429,51 @@ class RegisterView(TemplateView):
         request = Request(environ)
         if request.method == 'POST':
             post_data = request.POST
-            username = post_data.get('username', '')
+            username = post_data.get('username', '').strip()
             password = post_data.get('password', '')
 
-            if username and password:
-                success = self.register_user(username, password)
-                if success:
-                    status = '200 OK'
-                    headers = [('Content-type', 'application/json')]
-                    data = json.dumps({'message': 'User registered successfully'})
-                else:
-                    status = '400 Bad Request'
-                    headers = [('Content-type', 'application/json')]
-                    data = json.dumps({'error': 'Username already exists'})
-            else:
-                status = '400 Bad Request'
-                headers = [('Content-type', 'application/json')]
-                data = json.dumps({'error': 'Invalid username or password'})
+            # Проверка имени пользователя
+            if not re.match(r'^[a-zA-Zа-яА-Я0-9_-]{3,20}$', username):
+                return json_response(
+                    {'error': 'Недопустимое имя пользователя'},
+                    start_response,
+                    '400 Bad Request'
+                )
 
-            start_response(status, headers)
-            return [data.encode('utf-8')]
+            # Проверка пароля
+            if len(password) < 6:
+                return json_response(
+                    {'error': 'Пароль должен быть не менее 6 символов'},
+                    start_response,
+                    '400 Bad Request'
+                )
+
+            try:
+                hashed_password = hash_password(password)
+                with get_db_cursor() as cursor:
+                    cursor.execute(
+                        'INSERT INTO users (username, password) VALUES (?, ?)',
+                        (username, hashed_password)
+                    )
+                    cursor.connection.commit()
+                return json_response(
+                    {'message': 'Регистрация прошла успешно!'},
+                    start_response
+                )
+
+            except sqlite3.IntegrityError:
+                return json_response(
+                    {'error': 'Пользователь с таким именем уже существует'},
+                    start_response,
+                    '400 Bad Request'
+                )
+            except Exception as e:
+                logging.error(f"Registration error: {str(e)}")
+                return json_response(
+                    {'error': 'Ошибка сервера при регистрации'},
+                    start_response,
+                    '500 Internal Server Error'
+                )
 
         return super().response(environ, start_response)
 
@@ -483,8 +509,16 @@ class LoginView(TemplateView):
         if environ['REQUEST_METHOD'] == 'POST':
             request = Request(environ)
             post_data = parse_qs(request.body.decode('utf-8'))
-            username = post_data.get('username', [''])[0]
+            username = post_data.get('username', [''])[0].strip()
             password = post_data.get('password', [''])[0]
+
+            # Проверка имени
+            if not re.match(r'^[a-zA-Zа-яА-Я0-9_-]{3,20}$', username):
+                return json_response(
+                    {'error': 'Недопустимое имя пользователя'},
+                    start_response,
+                    '400 Bad Request'
+                )
 
             if username and password:
                 user_id = self.authenticate_user(username, password)
