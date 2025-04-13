@@ -1,6 +1,11 @@
 document.addEventListener("DOMContentLoaded", function () {
     const loginForm = document.getElementById("login-form");
 
+    function isValidUsername(username) {
+        const regex = /^[a-zA-Zа-яА-Я0-9_-]{3,20}$/u;
+        return regex.test(username);
+    }
+
     loginForm.addEventListener("submit", function (e) {
         e.preventDefault();
 
@@ -9,8 +14,13 @@ document.addEventListener("DOMContentLoaded", function () {
         const usernameInput = document.getElementById("username");
         const passwordInput = document.getElementById("password");
 
-        const username = usernameInput.value;
-        const password = passwordInput.value;
+        const username = document.getElementById("username").value.trim();
+        const password = document.getElementById("password").value;
+
+        if (!isValidUsername(username)) {
+            alert("Недопустимые символы в имени");
+            return;
+        }
 
         console.log("Username input (login.html):", username);
         console.log("Password input (login.html):", password);
@@ -78,5 +88,34 @@ document.addEventListener("DOMContentLoaded", function () {
             });
     }
     
+    // Общая функция для показа уведомлений
+function showAlert(message, type = 'error') {
+    const container = document.getElementById('alerts-container');
     
+    const alert = document.createElement('div');
+    alert.className = `alert ${type}`;
+    
+    const icon = document.createElement('span');
+    icon.className = 'alert-icon';
+    icon.innerHTML = type === 'error' ? '⚠' : '✅';
+    
+    const text = document.createElement('span');
+    text.textContent = message;
+    
+    alert.appendChild(icon);
+    alert.appendChild(text);
+    container.appendChild(alert);
+    
+    // Автоматическое скрытие через 5 секунд
+    setTimeout(() => {
+        alert.style.animation = 'fadeOut 0.3s forwards';
+        setTimeout(() => alert.remove(), 300);
+    }, 5000);
+}
+
+// Пример использования в обработчике submit:
+if (!isValidUsername(username)) {
+    showAlert('Имя может содержать только буквы, цифры, дефисы и подчёркивания (3-20 символов)');
+    return;
+}
 });
