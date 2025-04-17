@@ -19,6 +19,10 @@ routes = {
     '/search_users': SearchUsersView,
     '/get_private_chats': GetPrivateChatsView,
     '/search_messages': SearchMessagesView,
+    '/get_group_members': GetGroupMembersView,
+    '/get_general_chat_members': GetGeneralMembersView,
+    '/send_system_message': SendSystemMessageView,
+    r'^/delete_message/(\d+)$': DeleteMessageView,
     r'^/404$': NotFoundView,
     r'^/403$': ForbiddenView,
     r'^/500$': InternalServerErrorView
