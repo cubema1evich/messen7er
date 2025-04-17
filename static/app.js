@@ -1,30 +1,40 @@
 document.addEventListener("DOMContentLoaded", function () {
-    // Проверка авторизации
-    const username = sessionStorage.getItem('username');
-    if (username) {
-        document.getElementById('auth-buttons').style.display = 'none';
-        document.getElementById('user-info').classList.add('active');
-        document.getElementById('current-user').textContent = username;
-        setTimeout(() => selectGroup(null, 'Общий чат'), 100);
-    } else {
-        document.getElementById('auth-buttons').style.display = 'flex';
-        document.getElementById('user-info').classList.remove('active');
-    }
-
-        
-    let currentGroup = null;
-    let currentPrivateChat = null; 
-    let lastTimestamp = 0;
-
-    let currentSearch = {
-        query: '',
-        type: 'general',
-        chatId: null,
-        page: 1,
-        perPage: 20,
-        sort: 'relevance',
-        total: 0
+    // Глобальные функции выбора чатов
+    window.selectGroup = function(groupId, groupName, element) {
+        currentGroup = groupId;
+        currentPrivateChat = null;
+        sessionStorage.setItem('currentChat', JSON.stringify({
+            type: groupId ? 'group' : 'general',
+            id: groupId,
+            name: groupName
+        }));
+        UI.currentGroupName.textContent = groupName || 'Общий чат';
+        UI.chatBox.innerHTML = '';
+        lastTimestamp = 0;
+        loadGroups();
+        loadMessages();
     };
+
+    window.selectPrivateChat = async function(username) {
+        currentPrivateChat = username;
+        currentGroup = null;
+        sessionStorage.setItem('currentChat', JSON.stringify({
+            type: 'private',
+            name: username
+        }));
+        UI.currentGroupName.textContent = `Личный чат с ${username}`;
+        UI.chatBox.innerHTML = '';
+        lastTimestamp = 0;
+        await loadPrivateMessages();
+        await loadPrivateChats();
+        loadMessages();
+    };
+
+    // Инициализация переменных состояния
+    let currentGroup = null;
+    let currentPrivateChat = null;
+    let lastTimestamp = 0;
+    const username = sessionStorage.getItem('username');
 
     // Элементы интерфейса
     const UI = {
@@ -56,6 +66,18 @@ document.addEventListener("DOMContentLoaded", function () {
         //leaveGroupBtn: document.getElementById("leave-group-btn"),
     };
     
+    // Восстановление состояния чата
+    const savedChat = JSON.parse(sessionStorage.getItem('currentChat') || 'null');
+    if (savedChat) {
+        if (savedChat.type === 'group') {
+            selectGroup(savedChat.id, savedChat.name);
+        } else if (savedChat.type === 'private') {
+            selectPrivateChat(savedChat.name);
+        }
+    } else {
+        selectGroup(null, 'Общий чат');
+    }
+
     // Обработчики для правого сайдбара
     UI.membersToggle.addEventListener('click', function(e) {
         e.stopPropagation();
@@ -307,15 +329,21 @@ document.addEventListener("DOMContentLoaded", function () {
 
     async function deleteMessage(e) {
         const messageId = e.target.dataset.id;
-        if (confirm("Удалить сообщение?")) {
-            try {
-                const res = await fetch(`/delete_message/${messageId}`, { method: 'DELETE' });
-                if (res.ok) {
-                    e.target.closest('.message').remove();
+        if (!confirm("Удалить сообщение?")) return;
+        
+        try {
+            const res = await fetch(`/delete_message/${messageId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
                 }
-            } catch (error) {
-                console.error("Delete error:", error);
+            });
+            
+            if (res.ok) {
+                e.target.closest('.message').remove();
             }
+        } catch (error) {
+            console.error("Ошибка удаления:", error);
         }
     }
 
@@ -411,31 +439,32 @@ document.addEventListener("DOMContentLoaded", function () {
                 });
                 
                 if (res.ok) {
-
                     await fetch('/send_system_message', {
                         method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
-                            type: 'group_leave',
+                            type: 'user_left',
                             group_id: groupId,
-                            username: sessionStorage.getItem('username')
+                            username: username
                         })
                     });
                     
-                    currentGroup = null;
-                    loadGroups();
-                    loadMessages();
+                    selectGroup(null, 'Общий чат');
                 }
             } catch (error) {
-                console.error("Error leaving group:", error);
+                console.error("Ошибка выхода:", error);
             }
         }
-    }
+    };
 
         
     window.selectGroup = (groupId, groupName, element) => {
         currentGroup = groupId;
         currentPrivateChat = null; 
+        sessionStorage.setItem('currentChat', JSON.stringify({
+            type: groupId ? 'group' : 'general',
+            id: groupId,
+            name: groupName
+        }));
         UI.currentGroupName.textContent = groupName || 'Общий чат';
         UI.chatBox.innerHTML = '';
         lastTimestamp = 0;
@@ -596,6 +625,10 @@ document.addEventListener("DOMContentLoaded", function () {
     async function selectPrivateChat(username) {
         currentPrivateChat = username;
         currentGroup = null;
+        sessionStorage.setItem('currentChat', JSON.stringify({
+            type: 'private',
+            name: username
+        }));
         UI.currentGroupName.textContent = `Личный чат с ${username}`;
         UI.chatBox.innerHTML = '';
         lastTimestamp = 0;
@@ -693,7 +726,34 @@ document.addEventListener("DOMContentLoaded", function () {
         `).join('');
     }
 
-    window.selectPrivateChat = selectPrivateChat;
+    window.selectPrivateChat = async function(username) {
+        currentPrivateChat = username;
+        currentGroup = null;
+        sessionStorage.setItem('currentChat', JSON.stringify({
+            type: 'private',
+            name: username
+        }));
+        UI.currentGroupName.textContent = `Личный чат с ${username}`;
+        UI.chatBox.innerHTML = '';
+        lastTimestamp = 0;
+        await loadPrivateMessages();
+        await loadPrivateChats();
+        
+        await loadPrivateMessages();
+        requestAnimationFrame(() => {    
+            UI.chatBox.scrollTo({
+                top: UI.chatBox.scrollHeight,
+                behavior: 'auto'
+            });
+        });
+
+        document.querySelectorAll('.chat-item').forEach(item => {
+            item.classList.remove('active');
+            if (item.querySelector('span').textContent === username) {
+                item.classList.add('active');
+            }
+        });
+    };
 
     function updateFileIndicator() {
         const files = UI.fileInput.files;
