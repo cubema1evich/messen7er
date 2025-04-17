@@ -46,11 +46,22 @@ document.addEventListener("DOMContentLoaded", function () {
         fileBtn: document.getElementById('file-btn'),
         fileIndicator: document.getElementById('file-indicator'),
         fileCount: document.querySelector('.file-count'),
-        clearFilesBtn: document.querySelector('.clear-files-btn')
+        clearFilesBtn: document.querySelector('.clear-files-btn'),
+        membersToggle: document.getElementById("members-toggle"),
+        membersSidebar: document.querySelector(".sidebar-right"),
+        membersClose: document.getElementById('members-close'),
+        membersList: document.getElementById('members-list')
         //newMemberInput: document.getElementById("new-member-input"),
         //addMemberBtn: document.getElementById("add-member-btn"),
         //leaveGroupBtn: document.getElementById("leave-group-btn"),
     };
+    
+    // Обработчики для правого сайдбара
+    UI.membersToggle.addEventListener('click', function(e) {
+        e.stopPropagation();
+        UI.membersSidebar.classList.toggle('active');
+        loadParticipants();
+    });
 
     //Обработчик для кнопки файла
     UI.fileBtn.addEventListener('click', () => UI.fileInput.click());
@@ -74,6 +85,11 @@ document.addEventListener("DOMContentLoaded", function () {
         UI.sidebar.classList.remove('active');
         UI.sidebarToggle.style.display = 'block'; // Показываем кнопку
     }
+    if (!UI.membersSidebar.contains(e.target) && 
+        !UI.membersToggle.contains(e.target) &&
+        UI.membersSidebar.classList.contains('active')) {
+        UI.membersSidebar.classList.remove('active');
+    }
 });
 
     // Обработчик закрытия сайдбара через крестик
@@ -81,6 +97,11 @@ document.addEventListener("DOMContentLoaded", function () {
         e.stopPropagation();
         UI.sidebar.classList.remove('active');
         UI.sidebarToggle.style.display = 'block'; // Показываем кнопку "Группы"
+    });
+
+    UI.membersClose.addEventListener('click', function(e) {
+        e.stopPropagation();
+        UI.membersSidebar.classList.remove('active');
     });
 
     // Инициализация
@@ -242,6 +263,8 @@ document.addEventListener("DOMContentLoaded", function () {
                 <div class="message-header">
                     <span class="sender">${msg.sender}</span>
                     <span class="time">${time}</span>
+                    ${msg.sender === username ? 
+                        `<button class="delete-message-btn" data-id="${msg.id}">×</button>` : ''}
                 </div>
                 ${msg.message_text ? `<p class="message-text">${msg.message_text}</p>` : ''}
                 ${msg.attachments?.length > 0 ? `
@@ -264,7 +287,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 </div>
                 ` : ''}
                 `;
-    
+                
+                messageElement.querySelector('.delete-message-btn')?.addEventListener('click', deleteMessage);
+
                 chatBox.appendChild(messageElement);
             }
         });
@@ -278,6 +303,20 @@ document.addEventListener("DOMContentLoaded", function () {
                 });
             }
         });
+    }
+
+    async function deleteMessage(e) {
+        const messageId = e.target.dataset.id;
+        if (confirm("Удалить сообщение?")) {
+            try {
+                const res = await fetch(`/delete_message/${messageId}`, { method: 'DELETE' });
+                if (res.ok) {
+                    e.target.closest('.message').remove();
+                }
+            } catch (error) {
+                console.error("Delete error:", error);
+            }
+        }
     }
 
     async function createGroup() {
@@ -370,13 +409,22 @@ document.addEventListener("DOMContentLoaded", function () {
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ group_id: groupId })
                 });
-        
+                
                 if (res.ok) {
+
+                    await fetch('/send_system_message', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            type: 'group_leave',
+                            group_id: groupId,
+                            username: sessionStorage.getItem('username')
+                        })
+                    });
+                    
                     currentGroup = null;
-                    UI.currentGroupName.textContent = '';
                     loadGroups();
                     loadMessages();
-                    alert("Вы успешно покинули группу");
                 }
             } catch (error) {
                 console.error("Error leaving group:", error);
@@ -909,6 +957,27 @@ document.addEventListener("DOMContentLoaded", function () {
             messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
             messageElement.classList.add('highlight');
             setTimeout(() => messageElement.classList.remove('highlight'), 2000);
+        }
+    }
+
+    async function loadParticipants() {
+        try {
+            let url;
+            if (currentGroup) {
+                url = `/get_group_members?group_id=${currentGroup}`;
+            } else {
+                url = '/get_general_chat_members';
+            }
+            
+            const res = await fetch(url);
+            const data = await res.json();
+            
+            UI.membersList.innerHTML = data.members
+                .map(m => `<div class="member-item">${m}</div>`)
+                .join('');
+                
+        } catch (error) {
+            console.error("Error loading participants:", error);
         }
     }
     
