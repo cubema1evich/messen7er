@@ -421,7 +421,113 @@ class SendMessageView(View):
                 start_response, 
                 '500 Internal Server Error'
             )
+        
+class DeleteMessageView(View):
+    def response(self, environ, start_response):
+        try:
+            # Получаем параметры из URL
+            match = re.match(r'^/delete_message/(\d+)$', environ['PATH_INFO'])
+            if not match:
+                return json_response(
+                    {'error': 'Некорректный URL'}, 
+                    start_response, 
+                    '400 Bad Request'
+                )
+            
+            message_id = int(match.group(1))
+            user_id = Request(environ).cookies.get('user_id')
+            
+            if not user_id:
+                return forbidden_response(start_response)
+
+            with get_db_cursor() as cursor:
+                # Проверяем существование сообщения во всех возможных таблицах
+                queries = [
+                    ('general', 'messages', 'message_id', 'user_id'),
+                    ('group', 'group_messages', 'message_id', 'user_id'),
+                    ('private', 'private_messages', 'id', 'sender_id')
+                ]
+                
+                found = False
+                message_type = None
+                owner_id = None
+                target_table = None
+                target_id_column = None
+                
+                for msg_type, table, id_col, user_col in queries:
+                    cursor.execute(f'''
+                        SELECT {user_col} 
+                        FROM {table} 
+                        WHERE {id_col} = ?
+                    ''', (message_id,))
+                    result = cursor.fetchone()
                     
+                    if result:
+                        message_type = msg_type
+                        owner_id = result[0]
+                        target_table = table
+                        target_id_column = id_col
+                        found = True
+                        break
+                
+                if not found:
+                    return json_response(
+                        {'error': 'Сообщение не найдено'}, 
+                        start_response, 
+                        '404 Not Found'
+                    )
+
+                # Проверка прав доступа
+                if int(owner_id) != int(user_id):
+                    return json_response(
+                        {'error': 'У вас нет прав для удаления этого сообщения'}, 
+                        start_response, 
+                        '403 Forbidden'
+                    )
+
+                # Удаляем основное сообщение
+                cursor.execute(f'''
+                    DELETE FROM {target_table} 
+                    WHERE {target_id_column} = ?
+                ''', (message_id,))
+                
+                # Удаляем связанные вложения
+                if message_type:
+                    cursor.execute('''
+                        DELETE FROM attachments 
+                        WHERE message_type = ? 
+                        AND message_id = ?
+                    ''', (message_type, message_id))
+                
+                cursor.connection.commit()
+                
+                return json_response(
+                    {'status': 'Сообщение успешно удалено'}, 
+                    start_response
+                )
+
+        except ValueError as e:
+            logging.error(f"Ошибка формата ID: {str(e)}")
+            return json_response(
+                {'error': 'Неверный формат идентификатора сообщения'}, 
+                start_response, 
+                '400 Bad Request'
+            )
+        except sqlite3.Error as e:
+            logging.error(f"Ошибка базы данных: {str(e)}")
+            return json_response(
+                {'error': 'Ошибка при работе с базой данных'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )
+        except Exception as e:
+            logging.error(f"Критическая ошибка: {str(e)}", exc_info=True)
+            return json_response(
+                {'error': 'Внутренняя ошибка сервера'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )
+                            
 class RegisterView(TemplateView):
     template = 'templates/register.html'
 
@@ -1157,3 +1263,44 @@ class SearchMessagesView(View):
                 start_response,
                 '500 Internal Server Error'
             )
+class GetGroupMembersView(View):
+    def response(self, environ, start_response):
+        group_id = Request(environ).GET.get('group_id')
+        with get_db_cursor() as cursor:
+            cursor.execute('''
+                SELECT u.username 
+                FROM group_members gm
+                JOIN users u ON gm.user_id = u.id
+                WHERE gm.group_id = ?
+            ''', (group_id,))
+            members = [row[0] for row in cursor.fetchall()]
+            return json_response({'members': members}, start_response)
+
+class GetGeneralMembersView(View):
+    def response(self, environ, start_response):
+        with get_db_cursor() as cursor:
+            cursor.execute('SELECT username FROM users')
+            members = [row[0] for row in cursor.fetchall()]
+            return json_response({'members': members}, start_response)
+
+class SendSystemMessageView(View):
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            data = json.loads(request.body.decode('utf-8'))
+            
+            if data['type'] == 'group_leave':
+                message_text = f"Пользователь {data['username']} покинул группу"                
+                with get_db_cursor() as cursor:
+                    cursor.execute('''
+                        INSERT INTO group_messages 
+                        (group_id, user_id, message_text, timestamp)
+                        VALUES (?, 0, ?, ?)
+                    ''', (data['group_id'], message_text, int(time.time())))
+                    
+                    cursor.connection.commit()
+                    
+            return json_response({'status': 'success'}, start_response)
+            
+        except Exception as e:
+            return json_response({'error': str(e)}, start_response, '500 Internal Server Error')
