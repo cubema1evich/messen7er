@@ -156,22 +156,25 @@ def app(environ, start_response):
     :param start_response: Функция для отправки HTTP-заголовков.
     :return: Тело HTTP-ответа.
     """
-    # Логируем запрос
-    url = environ['REQUEST_URI']
-    
-    # Обработка статических файлов
-    if environ['REQUEST_URI'].startswith('/static/uploads/'):
-        return serve_static(environ, start_response)
 
+    url = environ['PATH_INFO']
+    view = None
+    matched_key = None  
+    
     try:
-        view = None
         for key in routes.keys():
-            if re.match(key, url) is not None:
+            if re.match(key, url):
                 view = routes[key](url)
+                matched_key = key 
                 break
 
-        if view is None:
+        if not view:
             view = NotFoundView(url)
+
+        if matched_key:
+            match = re.match(matched_key, url)
+            if match:
+                environ['url_params'] = match.groups()
 
         return view.response(environ, start_response)
         
