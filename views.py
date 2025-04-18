@@ -35,6 +35,7 @@ def json_response(data, start_response, status='200 OK'):
 def forbidden_response(start_response):
     start_response('403 Forbidden', [('Content-Type', 'text/plain')])
     return [b'Access denied']
+
 class View:
     path = ''
 
@@ -42,19 +43,39 @@ class View:
         self.url = url
 
     def response(self, environ, start_response):
-        file_name = self.path + self.url
-        headers = [('Content-type', get_mime(file_name))]
-
-
+        file_path = self.path + self.url
+        file_path = file_path.lstrip('/')  # Убираем ведущий слеш
+        
+        if not os.path.exists(file_path):
+            start_response('404 Not Found', [('Content-Type', 'text/plain')])
+            return [b'File not found']
+        
         try:
-            data = self.read_file(file_name[1:])
-            status = '200 OK'
-        except FileNotFoundError:
-            data = ''
-            status = '404 Not found'
-
-        start_response(status, headers)
-        return [data.encode('utf-8')]
+            mime_type = get_mime(file_path)
+            
+            # Для текстовых файлов
+            if mime_type.startswith('text/') or mime_type in ['application/javascript', 'application/json']:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = f.read()
+                start_response('200 OK', [('Content-Type', mime_type)])
+                return [data.encode('utf-8')]
+            # Для бинарных файлов
+            else:
+                with open(file_path, 'rb') as f:
+                    data = f.read()
+                start_response('200 OK', [('Content-Type', mime_type)])
+                return [data]
+                
+        except UnicodeDecodeError:
+            # Если не получилось прочитать как текст, пробуем как бинарный
+            with open(file_path, 'rb') as f:
+                data = f.read()
+            start_response('200 OK', [('Content-Type', mime_type)])
+            return [data]
+        except Exception as e:
+            logging.error(f"Error serving file {file_path}: {str(e)}")
+            start_response('500 Internal Server Error', [('Content-Type', 'text/plain')])
+            return [b'Internal Server Error']
 
     def read_file(self, file_name):
         print(file_name)
@@ -171,7 +192,8 @@ class GetMessageView(View):
                 m.timestamp,
                 a.file_path,
                 a.mime_type,
-                a.filename
+                a.filename,
+                'general' as type
             FROM messages m
             LEFT JOIN attachments a ON a.message_id = m.message_id AND a.message_type = 'general'
             WHERE m.timestamp > ?
@@ -423,111 +445,170 @@ class SendMessageView(View):
             )
         
 class DeleteMessageView(View):
+    def get_user_id(self, environ):
+        request = Request(environ)
+        try:
+            return int(request.cookies.get('user_id', 0))
+        except (ValueError, TypeError):
+            return 0
+
     def response(self, environ, start_response):
         try:
-            # Получаем параметры из URL
-            match = re.match(r'^/delete_message/(\d+)$', environ['PATH_INFO'])
-            if not match:
+            message_id = int(environ['url_params'][0])
+            query = parse_qs(environ['QUERY_STRING'])
+            message_type = query.get('type', ['general'])[0]
+
+            # Проверка допустимых типов
+            valid_types = ['general', 'group', 'private']
+            if message_type not in valid_types:
                 return json_response(
-                    {'error': 'Некорректный URL'}, 
-                    start_response, 
+                    {'error': 'Неверный тип сообщения'},
+                    start_response,
                     '400 Bad Request'
                 )
             
-            message_id = int(match.group(1))
-            user_id = Request(environ).cookies.get('user_id')
-            
+            user_id = self.get_user_id(environ)
             if not user_id:
                 return forbidden_response(start_response)
 
+            table_info = {
+                'general': ('messages', 'message_id', 'user_id'),
+                'group': ('group_messages', 'message_id', 'user_id'),
+                'private': ('private_messages', 'id', 'sender_id')
+            }
+
+            table, id_col, user_col = table_info[message_type]
+
             with get_db_cursor() as cursor:
-                # Проверяем существование сообщения во всех возможных таблицах
-                queries = [
-                    ('general', 'messages', 'message_id', 'user_id'),
-                    ('group', 'group_messages', 'message_id', 'user_id'),
-                    ('private', 'private_messages', 'id', 'sender_id')
-                ]
-                
-                found = False
-                message_type = None
-                owner_id = None
-                target_table = None
-                target_id_column = None
-                
-                for msg_type, table, id_col, user_col in queries:
-                    cursor.execute(f'''
-                        SELECT {user_col} 
-                        FROM {table} 
-                        WHERE {id_col} = ?
-                    ''', (message_id,))
-                    result = cursor.fetchone()
-                    
-                    if result:
-                        message_type = msg_type
-                        owner_id = result[0]
-                        target_table = table
-                        target_id_column = id_col
-                        found = True
-                        break
-                
-                if not found:
+                # Проверка прав доступа
+                cursor.execute(f'''
+                    SELECT {user_col} 
+                    FROM {table} 
+                    WHERE {id_col} = ?
+                ''', (message_id,))
+                result = cursor.fetchone()
+
+                if not result:
                     return json_response(
                         {'error': 'Сообщение не найдено'}, 
                         start_response, 
                         '404 Not Found'
                     )
 
-                # Проверка прав доступа
-                if int(owner_id) != int(user_id):
+                if int(result[0]) != int(user_id):
                     return json_response(
-                        {'error': 'У вас нет прав для удаления этого сообщения'}, 
+                        {'error': 'У вас нет прав для удаления'}, 
                         start_response, 
                         '403 Forbidden'
                     )
 
-                # Удаляем основное сообщение
+                # Удаляем сообщение
                 cursor.execute(f'''
-                    DELETE FROM {target_table} 
-                    WHERE {target_id_column} = ?
+                    DELETE FROM {table} 
+                    WHERE {id_col} = ?
                 ''', (message_id,))
-                
-                # Удаляем связанные вложения
-                if message_type:
-                    cursor.execute('''
-                        DELETE FROM attachments 
-                        WHERE message_type = ? 
-                        AND message_id = ?
-                    ''', (message_type, message_id))
-                
+
+                # Удаляем ВСЕ вложения независимо от типа
+                cursor.execute('''
+                    DELETE FROM attachments 
+                    WHERE message_type = ? 
+                    AND message_id = ?
+                ''', (message_type, message_id))
+
                 cursor.connection.commit()
-                
                 return json_response(
-                    {'status': 'Сообщение успешно удалено'}, 
+                    {'status': 'Сообщение удалено'}, 
                     start_response
                 )
 
-        except ValueError as e:
-            logging.error(f"Ошибка формата ID: {str(e)}")
-            return json_response(
-                {'error': 'Неверный формат идентификатора сообщения'}, 
-                start_response, 
-                '400 Bad Request'
-            )
-        except sqlite3.Error as e:
-            logging.error(f"Ошибка базы данных: {str(e)}")
-            return json_response(
-                {'error': 'Ошибка при работе с базой данных'}, 
-                start_response, 
-                '500 Internal Server Error'
-            )
         except Exception as e:
-            logging.error(f"Критическая ошибка: {str(e)}", exc_info=True)
+            logging.error(f"Ошибка удаления: {str(e)}")
             return json_response(
                 {'error': 'Внутренняя ошибка сервера'}, 
                 start_response, 
                 '500 Internal Server Error'
             )
-                            
+        
+    def response(self, environ, start_response):
+        try:
+            message_id = int(environ['url_params'][0])
+            query = parse_qs(environ['QUERY_STRING'])
+            message_type = query.get('type', ['general'])[0]
+
+            if message_type not in ['general', 'group', 'private']:
+                return json_response(
+                    {'error': 'Invalid message type'}, 
+                    start_response, 
+                    '400 Bad Request'
+                )
+
+            # Проверка допустимых типов
+            valid_types = ['general', 'group', 'private']
+            if message_type not in valid_types:
+                return json_response(
+                    {'error': 'Неверный тип сообщения'},
+                    start_response,
+                    '400 Bad Request'
+                )
+            
+            user_id = self.get_user_id(environ)
+            if not user_id:
+                return forbidden_response(start_response)
+
+            table_info = {
+                'general': ('messages', 'message_id', 'user_id'),
+                'group': ('group_messages', 'message_id', 'user_id'),
+                'private': ('private_messages', 'id', 'sender_id')
+            }
+
+            if message_type not in table_info:
+                return json_response({'error': 'Invalid message type'}, start_response, '400 Bad Request')
+
+            table, id_col, user_col = table_info[message_type]
+
+            with get_db_cursor() as cursor:
+                # Проверка прав доступа
+                cursor.execute(f'''
+                    SELECT {user_col} 
+                    FROM {table} 
+                    WHERE {id_col} = ?
+                ''', (message_id,))
+                result = cursor.fetchone()
+
+                if not result:
+                    return json_response({'error': 'Сообщение не найдено'}, start_response, '404 Not Found')
+
+                if int(result[0]) != int(user_id):
+                    return json_response(
+                        {'error': 'У вас нет прав для удаления'}, 
+                        start_response, 
+                        '403 Forbidden'
+                    )
+
+                # Удаляем сообщение
+                cursor.execute(f'''
+                    DELETE FROM {table} 
+                    WHERE {id_col} = ?
+                ''', (message_id,))
+
+                # Удаляем вложения
+                if message_type != 'private':
+                    cursor.execute('''
+                        DELETE FROM attachments 
+                        WHERE message_type = ? 
+                        AND message_id = ?
+                    ''', (message_type, message_id))
+
+                cursor.connection.commit()
+                return json_response({'status': 'Сообщение удалено'}, start_response)
+
+        except Exception as e:
+            logging.error(f"Ошибка удаления: {str(e)}")
+            return json_response(
+                {'error': 'Внутренняя ошибка сервера'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )                            
 class RegisterView(TemplateView):
     template = 'templates/register.html'
 
@@ -789,6 +870,8 @@ class GetGroupsView(View):
     def response(self, environ, start_response):
         request = Request(environ)
         user_id = request.cookies.get('user_id')
+        if not user_id:
+            return forbidden_response(start_response)
         
         if not user_id:
             return json_response(
@@ -822,7 +905,31 @@ class GetGroupMessagesView(View):
     def response(self, environ, start_response):
         try:
             request = Request(environ)
-            group_id = request.GET.get('group_id')
+            query_string = environ.get('QUERY_STRING', '')
+            
+            # Правильное извлечение group_id из query string
+            group_id = None
+            for param in query_string.split('&'):
+                if param.startswith('group_id='):
+                    group_id = param.split('=')[1]
+                    break
+            
+            if not group_id:
+                return json_response(
+                    {'error': 'Group ID is required'},
+                    start_response,
+                    '400 Bad Request'
+                )
+            
+            try:
+                group_id = int(group_id)
+            except ValueError:
+                return json_response(
+                    {'error': 'Invalid group ID format'},
+                    start_response,
+                    '400 Bad Request'
+                )
+            
             timestamp = int(request.GET.get('timestamp', 0))
             user_id = request.cookies.get('user_id')
 
@@ -830,7 +937,7 @@ class GetGroupMessagesView(View):
                 return forbidden_response(start_response)
 
             with get_db_cursor() as cursor:
-                # Проверка членства в группе
+                # Проверяем, что пользователь состоит в группе
                 cursor.execute('''
                     SELECT 1 FROM group_members 
                     WHERE group_id = ? AND user_id = ?
@@ -846,7 +953,8 @@ class GetGroupMessagesView(View):
                         gm.timestamp,
                         a.file_path,
                         a.mime_type,
-                        a.filename
+                        a.filename,
+                        'group' as type
                     FROM group_messages gm
                     JOIN users u ON gm.user_id = u.id
                     LEFT JOIN attachments a 
@@ -881,7 +989,7 @@ class GetGroupMessagesView(View):
                 }, start_response)
 
         except Exception as e:
-            logging.error(f"GetGroupMessages error: {str(e)}")
+            logging.error(f"GetGroupMessages error: {str(e)}", exc_info=True)
             return json_response(
                 {'error': 'Internal server error'}, 
                 start_response, 
@@ -1012,7 +1120,8 @@ class GetPrivateMessagesView(View):
                         pm.timestamp,
                         a.file_path, 
                         a.mime_type, 
-                        a.filename
+                        a.filename,
+                        'private' as type  # Добавляем тип
                     FROM private_messages pm
                     JOIN users u ON pm.sender_id = u.id
                     LEFT JOIN attachments a ON a.message_id = pm.id AND a.message_type = 'private'
@@ -1096,23 +1205,21 @@ class GetPrivateChatsView(View):
                 return forbidden_response(start_response)
 
             with get_db_cursor() as cursor:
-                # Улучшенный запрос с проверкой существования пользователя
                 cursor.execute('''
                     SELECT u.username, MAX(pm.timestamp) as last_activity
                     FROM (
-                        SELECT sender_id as user_id, timestamp 
+                        SELECT sender_id as partner_id, timestamp 
                         FROM private_messages 
                         WHERE receiver_id = ?
                         UNION ALL
-                        SELECT receiver_id as user_id, timestamp 
+                        SELECT receiver_id as partner_id, timestamp 
                         FROM private_messages 
                         WHERE sender_id = ?
                     ) pm
-                    JOIN users u ON pm.user_id = u.id
-                    WHERE u.id != ?
+                    JOIN users u ON pm.partner_id = u.id
                     GROUP BY u.username
                     ORDER BY last_activity DESC
-                ''', (user_id, user_id, user_id))
+                ''', (user_id, user_id))
                 
                 chats = [{
                     'username': row[0],
@@ -1304,3 +1411,106 @@ class SendSystemMessageView(View):
             
         except Exception as e:
             return json_response({'error': str(e)}, start_response, '500 Internal Server Error')
+        
+class EditMessageView(View):
+    def response(self, environ, start_response):
+        try:
+            message_id = int(environ['url_params'][0])
+            query = parse_qs(environ['QUERY_STRING'])
+            message_type = query.get('type', ['general'])[0]
+
+            if message_type not in ['general', 'group', 'private']:
+                return json_response(
+                    {'error': 'Неверный тип сообщения'},
+                    start_response,
+                    '400 Bad Request'
+                )
+
+            # Проверка допустимых типов
+            valid_types = ['general', 'group', 'private']
+            if message_type not in valid_types:
+                return json_response(
+                    {'error': 'Неверный тип сообщения'},
+                    start_response,
+                    '400 Bad Request'
+                )
+            
+            if message_type not in ['general', 'group', 'private']:
+                return json_response(
+                    {'error': 'Неверный тип сообщения'}, 
+                    start_response, 
+                    '400 Bad Request'
+                )
+
+            user_id = self.get_user_id(environ)
+            if not user_id:
+                return forbidden_response(start_response)
+
+            table_map = {
+                'general': ('messages', 'message_id', 'user_id'),
+                'group': ('group_messages', 'message_id', 'user_id'),
+                'private': ('private_messages', 'id', 'sender_id')
+            }
+
+            table, id_col, user_col = table_map[message_type]
+
+            content_length = int(environ.get('CONTENT_LENGTH', 0))
+            if content_length == 0:
+                return json_response(
+                    {'error': 'Пустое тело запроса'}, 
+                    start_response, 
+                    '400 Bad Request'
+                )
+                
+            data = json.loads(environ['wsgi.input'].read(content_length))
+            new_text = data.get('message', '').strip()
+            
+            if not new_text:
+                return json_response(
+                    {'error': 'Текст сообщения не может быть пустым'}, 
+                    start_response, 
+                    '400 Bad Request'
+                )
+
+            with get_db_cursor() as cursor:
+                cursor.execute(f'''
+                    SELECT {user_col} 
+                    FROM {table} 
+                    WHERE {id_col} = ?
+                ''', (message_id,))
+                result = cursor.fetchone()
+
+                if not result:
+                    return json_response(
+                        {'error': 'Сообщение не найдено'}, 
+                        start_response, 
+                        '404 Not Found'
+                    )
+
+                if int(result[0]) != int(user_id):
+                    return json_response(
+                        {'error': 'Нет прав на редактирование'}, 
+                        start_response, 
+                        '403 Forbidden'
+                    )
+
+                cursor.execute(f'''
+                    UPDATE {table} 
+                    SET message_text = ?
+                    WHERE {id_col} = ?
+                ''', (new_text, message_id))
+                
+                cursor.connection.commit()
+                return json_response({'status': 'Сообщение обновлено'}, start_response)
+
+        except Exception as e:
+            logging.error(f"Ошибка редактирования: {str(e)}", exc_info=True)
+            return json_response(
+                {'error': 'Внутренняя ошибка сервера'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )
+
+    def get_user_id(self, environ):
+        request = Request(environ)
+        return int(request.cookies.get('user_id', 0))
