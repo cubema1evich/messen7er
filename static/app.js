@@ -206,9 +206,14 @@ document.addEventListener("DOMContentLoaded", function () {
             let params = `timestamp=${lastTimestamp}`;
             
             if (currentGroup) {
-                url = `/get_group_messages?group_id=${currentGroup}&${params}`;
+                // Убедимся, что currentGroup - число
+                const groupId = Number(currentGroup);
+                if (isNaN(groupId)) {
+                    throw new Error("Invalid group ID");
+                }
+                url = `/get_group_messages?group_id=${groupId}&${params}`;
             } else if (currentPrivateChat) {
-                url = `/get_private_messages?user=${currentPrivateChat}&${params}`;
+                url = `/get_private_messages?user=${encodeURIComponent(currentPrivateChat)}&${params}`;
             } else {
                 url = `/get_messages?${params}`;
             }
@@ -267,26 +272,28 @@ document.addEventListener("DOMContentLoaded", function () {
         const sortedMessages = [...messages].sort((a, b) => a.timestamp - b.timestamp);
     
         sortedMessages.forEach(msg => {
-            const messageId = msg.id || msg.timestamp;
-            const existingMessage = chatBox.querySelector(`[data-id="${messageId}"]`);
+            const messageType = currentGroup ? 'group' : 
+                              currentPrivateChat ? 'private' : 
+                              'general';
+            
+            // Проверяем, существует ли уже такое сообщение
+            const existingMessage = chatBox.querySelector(`[data-id="${msg.id}"]`);
+            if (existingMessage) return;
     
-            if (!existingMessage) {
-                const messageElement = document.createElement("div");
-                messageElement.className = "message" + (msg.temp ? " temp" : "");
-                messageElement.dataset.id = messageId;
-                messageElement.dataset.timestamp = msg.timestamp;
+            const messageElement = document.createElement("div");
+            messageElement.className = "message" + (msg.temp ? " temp" : "");
+            messageElement.dataset.id = msg.id;
+            messageElement.dataset.type = messageType;
+            messageElement.dataset.timestamp = msg.timestamp;
     
-                const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: false };
-                const date = new Date(msg.timestamp * 1000);
-                const time = isNaN(date) ? '--:--' : date.toLocaleTimeString([], timeOptions);
+            const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: false };
+            const date = new Date(msg.timestamp * 1000);
+            const time = isNaN(date) ? '--:--' : date.toLocaleTimeString([], timeOptions);
     
-                // HTML структура сообщения
-                messageElement.innerHTML = `
+            messageElement.innerHTML = `
                 <div class="message-header">
                     <span class="sender">${msg.sender}</span>
                     <span class="time">${time}</span>
-                    ${msg.sender === username ? 
-                        `<button class="delete-message-btn" data-id="${msg.id}">×</button>` : ''}
                 </div>
                 ${msg.message_text ? `<p class="message-text">${msg.message_text}</p>` : ''}
                 ${msg.attachments?.length > 0 ? `
@@ -308,12 +315,15 @@ document.addEventListener("DOMContentLoaded", function () {
                     `).join('')}
                 </div>
                 ` : ''}
-                `;
-                
-                messageElement.querySelector('.delete-message-btn')?.addEventListener('click', deleteMessage);
-
-                chatBox.appendChild(messageElement);
+            `;
+    
+            if (msg.sender === username) {
+                messageElement.addEventListener('contextmenu', showContextMenu);
+                messageElement.addEventListener('touchstart', handleTouchStart);
+                messageElement.addEventListener('touchend', handleTouchEnd);
             }
+    
+            chatBox.appendChild(messageElement);
         });
     
         // Прокрутка после обновления
@@ -326,13 +336,94 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         });
     }
-
-    async function deleteMessage(e) {
-        const messageId = e.target.dataset.id;
+    
+    // Функции для контекстного меню
+    let longPressTimer;
+    let isLongPress = false;
+    
+    function handleTouchStart(e) {
+        longPressTimer = setTimeout(() => {
+            isLongPress = true;
+            showContextMenu(e);
+        }, 500);
+    }
+    
+    function handleTouchEnd(e) {
+        clearTimeout(longPressTimer);
+        if (isLongPress) {
+            e.preventDefault();
+            isLongPress = false;
+        }
+    }
+    
+    function showContextMenu(e) {
+        e.preventDefault();
+        const messageElement = e.target.closest('.message');
+        if (!messageElement) return;
+    
+        const messageId = messageElement.dataset.id;
+        const rect = messageElement.getBoundingClientRect();
+    
+        const existingMenu = document.querySelector('.context-menu');
+        if (existingMenu) existingMenu.remove();
+    
+        const contextMenu = document.createElement('div');
+        contextMenu.className = 'context-menu';
+        contextMenu.style.left = `${rect.left}px`;
+        contextMenu.style.top = `${rect.bottom}px`;
+        contextMenu.innerHTML = `
+            <div class="context-menu-item" data-action="edit">Редактировать</div>
+            <div class="context-menu-item" data-action="delete">Удалить</div>
+        `;
+    
+        document.body.appendChild(contextMenu);
+        contextMenu.style.display = 'block';
+    
+        contextMenu.querySelectorAll('.context-menu-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                handleContextMenuAction(e, messageId);
+                contextMenu.remove();
+            });
+        });
+    
+        const closeMenu = (e) => {
+            if (!contextMenu.contains(e.target)) {
+                contextMenu.remove();
+                document.removeEventListener('click', closeMenu);
+            }
+        };
+        document.addEventListener('click', closeMenu);
+    }
+    
+    async function handleContextMenuAction(e, messageId) {
+        const action = e.target.dataset.action;
+        const messageElement = document.querySelector(`[data-id="${messageId}"]`);
+        
+        if (!messageElement) {
+            console.error('Message element not found');
+            return;
+        }
+    
+        const messageType = messageElement.dataset.type;
+        
+        if (!messageType) {
+            console.error('Message type is undefined for message', messageId);
+            alert('Не удалось определить тип сообщения');
+            return;
+        }
+    
+        if (action === 'delete') {
+            deleteMessageById(messageId, messageType);
+        } else if (action === 'edit') {
+            enableMessageEditing(messageElement, messageId, messageType);
+        }
+    }
+    
+    async function deleteMessageById(messageId, messageType) {
         if (!confirm("Удалить сообщение?")) return;
         
         try {
-            const res = await fetch(`/delete_message/${messageId}`, {
+            const res = await fetch(`/delete_message/${messageId}?type=${messageType}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -340,11 +431,67 @@ document.addEventListener("DOMContentLoaded", function () {
             });
             
             if (res.ok) {
-                e.target.closest('.message').remove();
+                document.querySelector(`[data-id="${messageId}"]`).remove();
             }
         } catch (error) {
             console.error("Ошибка удаления:", error);
+            alert('Ошибка при удалении сообщения');
         }
+    }
+    
+    function enableMessageEditing(messageElement, messageId, messageType) {
+        const textElement = messageElement.querySelector('.message-text');
+        const originalText = textElement.textContent;
+        
+        const editContainer = document.createElement('div');
+        editContainer.className = 'editable-message';
+        editContainer.innerHTML = `
+            <textarea class="edit-message-input">${originalText}</textarea>
+            <button class="save-edit-btn">Сохранить</button>
+            <button class="cancel-edit-btn">Отмена</button>
+        `;
+        
+        textElement.replaceWith(editContainer);
+        
+        const textarea = editContainer.querySelector('textarea');
+        const saveBtn = editContainer.querySelector('.save-edit-btn');
+        const cancelBtn = editContainer.querySelector('.cancel-edit-btn');
+        
+        textarea.focus();
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+        
+        saveBtn.addEventListener('click', async () => {
+            const newText = textarea.value.trim();
+            if (newText && newText !== originalText) {
+                try {
+                    const res = await fetch(`/edit_message/${messageId}?type=${messageType}`, {
+                        method: 'PATCH',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${localStorage.getItem('token')}`
+                        },
+                        body: JSON.stringify({ message: newText })
+                    });
+                    
+                    if (res.ok) {
+                        textElement.textContent = newText;
+                        editContainer.replaceWith(textElement);
+                    } else {
+                        const errorData = await res.json();
+                        throw new Error(errorData.error);
+                    }
+                } catch (error) {
+                    console.error("Ошибка редактирования:", error);
+                    alert(`Ошибка: ${error.message}`);
+                }
+            } else {
+                editContainer.replaceWith(textElement);
+            }
+        });
+        
+        cancelBtn.addEventListener('click', () => {
+            editContainer.replaceWith(textElement);
+        });
     }
 
     async function createGroup() {
@@ -371,6 +518,7 @@ document.addEventListener("DOMContentLoaded", function () {
     async function loadGroups() {
         try {
             const res = await fetch('/get_groups');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const groups = await res.json();
             
             UI.groupsList.innerHTML = `
@@ -395,6 +543,9 @@ document.addEventListener("DOMContentLoaded", function () {
             `;
         } catch (error) {
             console.error("Error loading groups:", error);
+            if (error.message.includes('401')) {
+                window.location.href = '/login';
+            }
         }
     }
     
@@ -458,7 +609,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
         
     window.selectGroup = (groupId, groupName, element) => {
-        currentGroup = groupId;
+        currentGroup = Number(groupId);
         currentPrivateChat = null; 
         sessionStorage.setItem('currentChat', JSON.stringify({
             type: groupId ? 'group' : 'general',
@@ -516,7 +667,6 @@ document.addEventListener("DOMContentLoaded", function () {
         const tempId = Date.now();
         
         try {
-            // Создаем временное сообщение только если есть что показать
             if (message || files.length > 0) {
                 const tempMessage = {
                     id: tempId,
@@ -524,6 +674,9 @@ document.addEventListener("DOMContentLoaded", function () {
                     message_text: message,
                     timestamp: Math.floor(Date.now()/1000),
                     temp: true,
+                    type: currentGroup ? 'group' :        
+                          currentPrivateChat ? 'private' : 
+                          'general',
                     attachments: Array.from(files).map(file => ({
                         filename: file.name,
                         mime_type: file.type,
