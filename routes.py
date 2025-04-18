@@ -22,6 +22,7 @@ routes = {
     '/get_group_members': GetGroupMembersView,
     '/get_general_chat_members': GetGeneralMembersView,
     '/send_system_message': SendSystemMessageView,
+    r'^/edit_message/(\d+)$': EditMessageView,
     r'^/delete_message/(\d+)$': DeleteMessageView,
     r'^/404$': NotFoundView,
     r'^/403$': ForbiddenView,
