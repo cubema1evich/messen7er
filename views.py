@@ -786,6 +786,14 @@ class CreateGroupView(View):
                 )
 
             with get_db_cursor() as cursor:
+                cursor.execute('SELECT group_id FROM groups WHERE name = ?', (group_name,))
+                if cursor.fetchone():
+                    return json_response(
+                        {'error': 'Группа с таким именем уже существует'},
+                        start_response,
+                        '400 Bad Request'
+                    )
+                
                 # Создаем группу
                 cursor.execute('''
                     INSERT INTO groups (name, creator_id, created_at)
@@ -796,9 +804,9 @@ class CreateGroupView(View):
                 
                 # Добавляем создателя
                 cursor.execute('''
-                    INSERT INTO group_members (group_id, user_id, role)
-                    VALUES (?, ?, ?)
-                ''', (group_id, user_id, 'owner'))
+                    INSERT INTO group_members (group_id, user_id, role, timestamp)
+                    VALUES (?, ?, ?, ?)
+                ''', (group_id, user_id, 'owner', int(time.time())))
                 
                 cursor.connection.commit()
                 return json_response(
@@ -807,6 +815,7 @@ class CreateGroupView(View):
                 )
 
         except Exception as e:
+            logging.error(f"Error creating group: {str(e)}", exc_info=True)
             return json_response(
                 {'error': 'Ошибка сервера'}, 
                 start_response, 
@@ -818,54 +827,93 @@ class AddToGroupView(View):
         try:
             request = Request(environ)
             user_id = request.cookies.get('user_id')
+            
+            if not user_id:
+                return json_response(
+                    {'error': 'Not authorized'}, 
+                    start_response, 
+                    '401 Unauthorized'
+                )
+
             content_length = int(environ.get('CONTENT_LENGTH', 0))
-            post_data = json.loads(request.body.decode('utf-8'))
+            post_data = json.loads(environ['wsgi.input'].read(content_length))
             
             group_id = post_data.get('group_id')
             username = post_data.get('username')
             role = post_data.get('role', 'member')
 
-            # Проверка наличия всех параметров
-            if not all([user_id, group_id, username]):
-                return json_response({'error': 'Missing parameters'}, start_response, '400 Bad Request')
+            with get_db_cursor() as cursor:
+                # Проверка существования группы
+                cursor.execute('SELECT name FROM groups WHERE group_id = ?', (group_id,))
+                group = cursor.fetchone()
+                if not group:
+                    return json_response(
+                        {'error': 'Group not found'}, 
+                        start_response, 
+                        '404 Not Found'
+                    )
+                
+                # Добавление в группу
+                cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
+                target_user = cursor.fetchone()
+                if not target_user:
+                    return json_response(
+                        {'error': 'User not found'}, 
+                        start_response, 
+                        '404 Not Found'
+                    )
+                
+                try:
+                    cursor.execute('''
+                        UPDATE group_members 
+                        SET timestamp = ?
+                        WHERE group_id = ?
+                    ''', (int(time.time()), group_id))
 
-            conn = sqlite3.connect('data.db')
-            cursor = conn.cursor()
+                    cursor.execute('''
+                        INSERT INTO group_members (group_id, user_id, role)
+                        VALUES (?, ?, ?)
+                    ''', (group_id, target_user[0], role))
+                    
+                    cursor.execute('''
+                        INSERT INTO group_messages 
+                        (group_id, user_id, message_text, timestamp)
+                        VALUES (?, 0, ?, ?)
+                    ''', (group_id, f'Пользователь {username} добавлен в группу', int(time.time())))
+                    
+                    cursor.connection.commit()
+                    
+                    # Отправляем обновление всем участникам группы
+                    cursor.execute('''
+                        SELECT user_id FROM group_members WHERE group_id = ?
+                    ''', (group_id,))
+                    members = [row[0] for row in cursor.fetchall()]
+                    
+                    cursor.connection.commit()
+                    
+                    # Возвращаем имя группы для обновления интерфейса
+                    return json_response({
+                        'status': 'success',
+                        'group_id': group_id,
+                        'group_name': group[0],
+                        'updated_timestamp': int(time.time())  # Добавляем новый timestamp
+                    }, start_response)
+                    
+                except sqlite3.IntegrityError:
+                    return json_response(
+                        {'error': 'User already in group'}, 
+                        start_response, 
+                        '400 Bad Request'
+                    )
 
-            # Проверка прав пользователя
-            cursor.execute('''
-                SELECT role FROM group_members 
-                WHERE group_id = ? AND user_id = ?
-            ''', (group_id, user_id))
-            user_role = cursor.fetchone()
-            
-            if not user_role or user_role[0] not in ['owner', 'admin']:
-                return forbidden_response(start_response)
-
-            # Поиск ID добавляемого пользователя
-            cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
-            target_user = cursor.fetchone()
-            if not target_user:
-                return json_response({'error': 'User not found'}, start_response, '404 Not Found')
-            
-            target_user_id = target_user[0]
-
-            # Добавление в группу
-            cursor.execute('''
-                INSERT OR IGNORE INTO group_members (group_id, user_id, role)
-                VALUES (?, ?, ?)
-            ''', (group_id, target_user_id, role))
-            
-            conn.commit()
-            return json_response({'status': 'success'}, start_response)
-            
         except Exception as e:
-            print(f"Error: {str(e)}")  # Логирование ошибки
-            return json_response({'error': 'Internal Server Error'}, start_response, '500 Internal Server Error')
-        finally:
-            if 'conn' in locals():
-                conn.close()
-                            
+            logging.error(f"AddToGroup error: {str(e)}")
+            return json_response(
+                {'error': 'Internal Server Error'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )
+                                    
 class GetGroupsView(View):
     def response(self, environ, start_response):
         request = Request(environ)
@@ -906,9 +954,8 @@ class GetGroupMessagesView(View):
         try:
             request = Request(environ)
             query_string = environ.get('QUERY_STRING', '')
-            
-            # Правильное извлечение group_id из query string
             group_id = None
+            
             for param in query_string.split('&'):
                 if param.startswith('group_id='):
                     group_id = param.split('=')[1]
@@ -937,26 +984,22 @@ class GetGroupMessagesView(View):
                 return forbidden_response(start_response)
 
             with get_db_cursor() as cursor:
-                # Проверяем, что пользователь состоит в группе
-                cursor.execute('''
-                    SELECT 1 FROM group_members 
-                    WHERE group_id = ? AND user_id = ?
-                ''', (group_id, user_id))
-                if not cursor.fetchone():
-                    return forbidden_response(start_response)
-
                 cursor.execute('''
                     SELECT 
                         gm.message_id,
-                        u.username,
+                        CASE 
+                            WHEN gm.user_id = 0 THEN 'System'
+                            ELSE u.username
+                        END as sender,
                         gm.message_text,
                         gm.timestamp,
                         a.file_path,
                         a.mime_type,
                         a.filename,
-                        'group' as type
+                        'group' as type,
+                        gm.user_id
                     FROM group_messages gm
-                    JOIN users u ON gm.user_id = u.id
+                    LEFT JOIN users u ON gm.user_id = u.id
                     LEFT JOIN attachments a 
                         ON a.message_id = gm.message_id 
                         AND a.message_type = 'group'
@@ -973,6 +1016,8 @@ class GetGroupMessagesView(View):
                             'sender': row[1],
                             'message_text': row[2],
                             'timestamp': row[3],
+                            'type': row[7],
+                            'user_id': row[8],
                             'attachments': []
                         }
                     
@@ -995,6 +1040,39 @@ class GetGroupMessagesView(View):
                 start_response, 
                 '500 Internal Server Error'
             )
+
+class CheckGroupAccessView(View):
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            user_id = request.cookies.get('user_id')
+            group_id = request.GET.get('group_id')
+            
+            if not user_id:
+                return json_response(
+                    {'error': 'Not authorized'}, 
+                    start_response, 
+                    '401 Unauthorized'
+                )
+            
+            with get_db_cursor() as cursor:
+                cursor.execute('''
+                    SELECT 1 FROM group_members 
+                    WHERE group_id = ? AND user_id = ?
+                ''', (group_id, user_id))
+                
+                if cursor.fetchone():
+                    return json_response({'has_access': True}, start_response)
+                else:
+                    return json_response({'has_access': False}, start_response)
+                    
+        except Exception as e:
+            logging.error(f"CheckGroupAccess error: {str(e)}")
+            return json_response(
+                {'error': 'Internal Server Error'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )
             
 class GetGroupNameView(View):
     def response(self, environ, start_response):
@@ -1011,30 +1089,63 @@ class LeaveGroupView(View):
         try:
             request = Request(environ)
             user_id = request.cookies.get('user_id')
+            
+            if not user_id:
+                return json_response(
+                    {'error': 'Not authorized'}, 
+                    start_response, 
+                    '401 Unauthorized'
+                )
+
             content_length = int(environ.get('CONTENT_LENGTH', 0))
-            post_data = json.loads(request.body.decode('utf-8'))
+            post_data = json.loads(environ['wsgi.input'].read(content_length))
             group_id = post_data.get('group_id')
 
-            if not user_id or not group_id:
-                return forbidden_response(start_response)
+            with get_db_cursor() as cursor:
+                try:
+                    cursor.execute('BEGIN TRANSACTION')
+                    
+                    # Получаем username перед удалением
+                    cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
+                    username = cursor.fetchone()[0]
+                    
+                    # Удаляем пользователя из группы
+                    cursor.execute('''
+                        DELETE FROM group_members 
+                        WHERE group_id = ? AND user_id = ?
+                    ''', (group_id, user_id))
+                    
+                    # Добавляем системное сообщение
+                    cursor.execute('''
+                        INSERT INTO group_messages 
+                        (group_id, user_id, message_text, timestamp)
+                        VALUES (?, 0, ?, ?)
+                    ''', (group_id, f'Пользователь {username} покинул группу', int(time.time())))
+                    
+                    cursor.connection.commit()
+                    
+                    return json_response(
+                        {'status': 'success'}, 
+                        start_response
+                    )
+                
+                except Exception as e:
+                    cursor.connection.rollback()
+                    logging.error(f"LeaveGroup error: {str(e)}")
+                    return json_response(
+                        {'error': 'Internal Server Error'}, 
+                        start_response, 
+                        '500 Internal Server Error'
+                    )
 
-            conn = sqlite3.connect('data.db')
-            cursor = conn.cursor()
-            
-            # Удаляем пользователя из группы
-            cursor.execute('''
-                DELETE FROM group_members 
-                WHERE group_id = ? AND user_id = ?
-            ''', (group_id, user_id))
-            
-            conn.commit()
-            return json_response({'status': 'success'}, start_response)
-            
         except Exception as e:
-            return json_response({'error': str(e)}, start_response, '500 Internal Server Error')
-        finally:
-            conn.close()
-
+            logging.error(f"LeaveGroup error: {str(e)}")
+            return json_response(
+                {'error': 'Internal Server Error'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )   
+        
 class SendPrivateMessageView(View):
     def response(self, environ, start_response):
         try:
@@ -1101,37 +1212,51 @@ class GetPrivateMessagesView(View):
             other_user = request.GET.get('user')
             timestamp = int(request.GET.get('timestamp', 0))
 
-            if not user_id or not other_user:
-                return forbidden_response(start_response)
+            if not user_id:
+                return json_response(
+                    {'error': 'Not authorized'}, 
+                    start_response, 
+                    '401 Unauthorized'
+                )
+            
+            if not other_user:
+                return json_response(
+                    {'error': 'User parameter is required'},
+                    start_response,
+                    '400 Bad Request'
+                )
 
             with get_db_cursor() as cursor:
                 # Получаем ID собеседника
                 cursor.execute('SELECT id FROM users WHERE username = ?', (other_user,))
                 result = cursor.fetchone()
                 if not result:
-                    return json_response({'error': 'User not found'}, start_response, '404 Not Found')
+                    return json_response(
+                        {'error': 'User not found'}, 
+                        start_response, 
+                        '404 Not Found'
+                    )
+                
                 other_user_id = result[0]
-
+                
                 cursor.execute('''
                     SELECT 
                         pm.id,
                         pm.message_text,
-                        u.username,
+                        u_sender.username as sender,
                         pm.timestamp,
-                        a.file_path, 
-                        a.mime_type, 
+                        a.file_path,
+                        a.mime_type,
                         a.filename,
-                        'private' as type  # Добавляем тип
+                        pm.sender_id
                     FROM private_messages pm
-                    JOIN users u ON pm.sender_id = u.id
+                    JOIN users u_sender ON pm.sender_id = u_sender.id
                     LEFT JOIN attachments a ON a.message_id = pm.id AND a.message_type = 'private'
-                    WHERE 
-                        ((pm.sender_id = ? AND pm.receiver_id = ?)
-                        OR 
-                        (pm.sender_id = ? AND pm.receiver_id = ?))
+                    WHERE ((pm.sender_id = ? AND pm.receiver_id = ?)
+                    OR (pm.sender_id = ? AND pm.receiver_id = ?))
                     AND pm.timestamp > ?
                     ORDER BY pm.timestamp ASC
-                ''', (user_id, other_user_id, other_user_id, user_id, timestamp))
+                ''', [user_id, other_user_id, other_user_id, user_id, timestamp])
                 
                 messages = []
                 current_msg_id = None
@@ -1426,22 +1551,6 @@ class EditMessageView(View):
                     '400 Bad Request'
                 )
 
-            # Проверка допустимых типов
-            valid_types = ['general', 'group', 'private']
-            if message_type not in valid_types:
-                return json_response(
-                    {'error': 'Неверный тип сообщения'},
-                    start_response,
-                    '400 Bad Request'
-                )
-            
-            if message_type not in ['general', 'group', 'private']:
-                return json_response(
-                    {'error': 'Неверный тип сообщения'}, 
-                    start_response, 
-                    '400 Bad Request'
-                )
-
             user_id = self.get_user_id(environ)
             if not user_id:
                 return forbidden_response(start_response)
@@ -1455,15 +1564,9 @@ class EditMessageView(View):
             table, id_col, user_col = table_map[message_type]
 
             content_length = int(environ.get('CONTENT_LENGTH', 0))
-            if content_length == 0:
-                return json_response(
-                    {'error': 'Пустое тело запроса'}, 
-                    start_response, 
-                    '400 Bad Request'
-                )
-                
             data = json.loads(environ['wsgi.input'].read(content_length))
             new_text = data.get('message', '').strip()
+            new_timestamp = data.get('timestamp', int(time.time()))
             
             if not new_text:
                 return json_response(
@@ -1496,9 +1599,9 @@ class EditMessageView(View):
 
                 cursor.execute(f'''
                     UPDATE {table} 
-                    SET message_text = ?
+                    SET message_text = ?, timestamp = ?
                     WHERE {id_col} = ?
-                ''', (new_text, message_id))
+                ''', (new_text, new_timestamp, message_id))
                 
                 cursor.connection.commit()
                 return json_response({'status': 'Сообщение обновлено'}, start_response)
@@ -1514,3 +1617,191 @@ class EditMessageView(View):
     def get_user_id(self, environ):
         request = Request(environ)
         return int(request.cookies.get('user_id', 0))
+    
+class CheckMessagesView(View):
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            query = parse_qs(environ['QUERY_STRING'])
+            message_type = query.get('type', ['general'])[0]
+            message_ids = query.get('ids', [''])[0].split(',')
+            
+            if not message_ids or not message_ids[0]:
+                return json_response({'existingIds': []}, start_response)
+
+            with get_db_cursor() as cursor:
+                if message_type == 'group':
+                    chat_id = query.get('chat_id', [None])[0]
+                    cursor.execute('''
+                        SELECT message_id 
+                        FROM group_messages 
+                        WHERE group_id = ? AND message_id IN (%s)
+                    ''' % ','.join('?'*len(message_ids)), 
+                    [chat_id] + message_ids)
+                elif message_type == 'private':
+                    # Для приватных чатов нужно проверить оба направления
+                    user_id = request.cookies.get('user_id')
+                    chat_id = query.get('chat_id', [None])[0]
+                    cursor.execute('SELECT id FROM users WHERE username = ?', (chat_id,))
+                    partner = cursor.fetchone()
+                    if not partner:
+                        return json_response({'existingIds': []}, start_response)
+                    
+                    cursor.execute('''
+                        SELECT id 
+                        FROM private_messages 
+                        WHERE (
+                            (sender_id = ? AND receiver_id = ?) OR
+                            (sender_id = ? AND receiver_id = ?)
+                        ) AND id IN (%s)
+                    ''' % ','.join('?'*len(message_ids)), 
+                    [user_id, partner[0], partner[0], user_id] + message_ids)
+                else:
+                    cursor.execute('''
+                        SELECT message_id 
+                        FROM messages 
+                        WHERE message_id IN (%s)
+                    ''' % ','.join('?'*len(message_ids)), 
+                    message_ids)
+                
+                existing_ids = [str(row[0]) for row in cursor.fetchall()]
+                return json_response({'existingIds': existing_ids}, start_response)
+                
+        except Exception as e:
+            logging.error(f"CheckMessages error: {str(e)}")
+            return json_response({'existingIds': []}, start_response)
+        
+class CheckEditedMessagesView(View):
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            query = parse_qs(environ['QUERY_STRING'])
+            message_type = query.get('type', ['general'])[0]
+            last_timestamp = int(query.get('last_timestamp', [0])[0])
+            
+            with get_db_cursor() as cursor:
+                if message_type == 'group':
+                    chat_id = query.get('chat_id', [None])[0]
+                    cursor.execute('''
+                        SELECT 
+                            gm.message_id as id,
+                            gm.message_text as text,
+                            gm.timestamp
+                        FROM group_messages gm
+                        WHERE gm.group_id = ? 
+                        AND gm.timestamp > ?
+                        ORDER BY gm.timestamp DESC
+                    ''', (chat_id, last_timestamp))
+                elif message_type == 'private':
+                    user_id = request.cookies.get('user_id')
+                    chat_id = query.get('chat_id', [None])[0]
+                    cursor.execute('SELECT id FROM users WHERE username = ?', (chat_id,))
+                    partner = cursor.fetchone()
+                    if not partner:
+                        return json_response({'editedMessages': []}, start_response)
+                    
+                    cursor.execute('''
+                        SELECT 
+                            pm.id as id,
+                            pm.message_text as text,
+                            pm.timestamp
+                        FROM private_messages pm
+                        WHERE (
+                            (pm.sender_id = ? AND pm.receiver_id = ?) OR
+                            (pm.sender_id = ? AND pm.receiver_id = ?)
+                        )
+                        AND pm.timestamp > ?
+                        ORDER BY pm.timestamp DESC
+                    ''', [user_id, partner[0], partner[0], user_id, last_timestamp])
+                else:
+                    cursor.execute('''
+                        SELECT 
+                            m.message_id as id,
+                            m.message_text as text,
+                            m.timestamp
+                        FROM messages m
+                        WHERE m.timestamp > ?
+                        ORDER BY m.timestamp DESC
+                    ''', (last_timestamp,))
+                
+                edited_messages = [{
+                    'id': row[0],
+                    'text': row[1],
+                    'timestamp': row[2]
+                } for row in cursor.fetchall()]
+                
+                return json_response({'editedMessages': edited_messages}, start_response)
+                
+        except Exception as e:
+            logging.error(f"CheckEditedMessages error: {str(e)}")
+            return json_response({'editedMessages': []}, start_response)
+        
+class CheckGroupsUpdatesView(View):
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            user_id = request.cookies.get('user_id')
+            if not user_id:
+                return json_response({'updated': False}, start_response)
+
+            with get_db_cursor() as cursor:
+                # Получаем timestamp последнего изменения групп пользователя
+                cursor.execute('''
+                    SELECT MAX(gm.timestamp) 
+                    FROM group_members gm
+                    JOIN groups g ON gm.group_id = g.group_id
+                    WHERE gm.user_id = ?
+                ''', (user_id,))
+                last_update = cursor.fetchone()[0] or 0
+                
+                # Проверяем были ли изменения после последнего обновления
+                cursor.execute('''
+                    SELECT 1 FROM group_members gm
+                    JOIN groups g ON gm.group_id = g.group_id
+                    WHERE gm.user_id = ? AND gm.timestamp > ?
+                    LIMIT 1
+                ''', (user_id, last_update))
+                
+                updated = cursor.fetchone() is not None
+                return json_response({'updated': updated}, start_response)
+                
+        except Exception as e:
+            logging.error(f"CheckGroupsUpdates error: {str(e)}")
+            return json_response({'updated': False}, start_response)
+
+class CheckPrivateChatsUpdatesView(View):
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            user_id = request.cookies.get('user_id')
+            if not user_id:
+                return json_response({'updated': False}, start_response)
+
+            with get_db_cursor() as cursor:
+                # Получаем timestamp последнего сообщения в приватных чатах
+                cursor.execute('''
+                    SELECT MAX(timestamp) FROM (
+                        SELECT MAX(timestamp) as timestamp 
+                        FROM private_messages 
+                        WHERE sender_id = ? OR receiver_id = ?
+                        GROUP BY 
+                            CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END
+                    )
+                ''', (user_id, user_id, user_id))
+                
+                last_update = cursor.fetchone()[0] or 0
+                
+                # Проверяем новые сообщения
+                cursor.execute('''
+                    SELECT 1 FROM private_messages
+                    WHERE (sender_id = ? OR receiver_id = ?)
+                    AND timestamp > ?
+                    LIMIT 1
+                ''', (user_id, user_id, last_update))
+                
+                updated = cursor.fetchone() is not None
+                return json_response({'updated': updated}, start_response)
+                
+        except Exception as e:
+            logging.error(f"CheckPrivateChatsUpdates error: {str(e)}")
+            return json_response({'updated': False}, start_response)
