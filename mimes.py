@@ -2,6 +2,7 @@ mimes = {
     '.html': 'text/html',
     '.css': 'text/css',
     '.js': 'text/javascript',
+    '.ico': 'image/ico',
     '.png': 'image/png',
     '.jpg': 'image/jpeg',
     '.jpeg': 'image/jpeg',
