@@ -44,7 +44,7 @@ def initialize_database():
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS groups (
                 group_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
+                name TEXT NOT NULL UNIQUE,
                 creator_id INTEGER,
                 created_at INTEGER,
                 FOREIGN KEY(creator_id) REFERENCES users(user_id)
@@ -76,8 +76,15 @@ def initialize_database():
             CREATE TABLE IF NOT EXISTS group_members (
                 group_id INTEGER,
                 user_id INTEGER,
-                role TEXT CHECK(role IN ('owner', 'admin', 'member')) 
+                role TEXT CHECK(role IN ('owner', 'admin', 'member')),
+                timestamp INTEGER,
+                UNIQUE (group_id, user_id)
             )
+        ''')
+
+        cursor.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_group_members 
+            ON group_members (user_id, timestamp)
         ''')
 
         # Таблица сообщений групп
