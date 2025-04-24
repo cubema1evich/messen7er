@@ -155,28 +155,31 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!isTabActive) return;
         
         try {
-            checkInterfaceUpdates(); 
+            // Всегда проверяем обновления интерфейса
+            checkInterfaceUpdates();
             
+            // Для всех случаев проверяем приватные чаты
+            loadPrivateChats();
+            
+            // Загружаем соответствующие сообщения
             if (currentGroup) {
                 loadMessages();
                 loadParticipants();
-                loadPrivateChats();
-                checkDeletedMessages();
-                checkEditedMessages();
             } else if (currentPrivateChat) {
                 loadPrivateMessages();
-                checkDeletedMessages();
-                checkEditedMessages();
             } else {
                 loadMessages();
-                checkDeletedMessages();
-                checkEditedMessages();
             }
+            
+            // Проверяем измененные/удаленные сообщения
+            checkDeletedMessages();
+            checkEditedMessages();
+            
         } catch (e) {
             console.error('Interval error:', e);
         }
         
-        setTimeout(checkForUpdates, 2000); // 2 секунды между проверками
+        setTimeout(checkForUpdates, 2000);
     }
 
     checkForUpdates();
@@ -699,7 +702,8 @@ document.addEventListener("DOMContentLoaded", function () {
         try {
             const res = await fetch('/get_groups', {
                 headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                    'Cache-Control': 'no-cache'
                 }
             });
             
@@ -908,6 +912,7 @@ document.addEventListener("DOMContentLoaded", function () {
         const tempId = Date.now();
         
         try {
+            // Показываем временное сообщение
             if (message || files.length > 0) {
                 const tempMessage = {
                     id: tempId,
@@ -915,9 +920,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     message_text: message,
                     timestamp: Math.floor(Date.now()/1000),
                     temp: true,
-                    type: currentGroup ? 'group' :        
-                          currentPrivateChat ? 'private' : 
-                          'general',
+                    type: currentPrivateChat ? 'private' : (currentGroup ? 'group' : 'general'),
                     attachments: Array.from(files).map(file => ({
                         filename: file.name,
                         mime_type: file.type,
@@ -926,13 +929,11 @@ document.addEventListener("DOMContentLoaded", function () {
                 };
                 
                 displayMessages([tempMessage]);
-                loadPrivateChats();
             }
     
             const formData = new FormData();
             if (message) formData.append('message', message);
             
-            // Добавляем файлы только если они есть
             if (files.length > 0) {
                 const uniqueFiles = new Set();
                 Array.from(files).forEach(file => {
@@ -943,17 +944,9 @@ document.addEventListener("DOMContentLoaded", function () {
                     }
                 });
             }
-
-            if (currentPrivateChat) {
-                await loadPrivateChats();
-                // Принудительное обновление
-                const response = await fetch('/get_private_chats');
-                const data = await response.json();
-                renderPrivateChats(data);
-            }
-            
+    
             if (currentGroup) {
-                // Проверяем доступ к группе перед отправкой
+                // Проверка доступа к группе
                 const accessRes = await fetch(`/check_group_access?group_id=${currentGroup}`);
                 if (!accessRes.ok) {
                     alert('У вас больше нет доступа к этой группе');
@@ -963,12 +956,11 @@ document.addEventListener("DOMContentLoaded", function () {
                     return loadMessages();
                 }
                 formData.append('group_id', currentGroup.toString());
-            }
-
-            else if (currentPrivateChat) {
+            } else if (currentPrivateChat) {
                 formData.append('receiver', currentPrivateChat);
             }
     
+            // Отправка сообщения
             const res = await fetch('/send_message', {
                 method: 'POST',
                 body: formData
@@ -976,8 +968,26 @@ document.addEventListener("DOMContentLoaded", function () {
             
             if (!res.ok) throw new Error(await res.text());
     
+            // Удаляем временное сообщение
             const tempElement = UI.chatBox.querySelector(`[data-id="${tempId}"]`);
             if (tempElement) tempElement.remove();
+    
+            // ОБНОВЛЯЕМ СПИСОК ЧАТОВ ПОСЛЕ УСПЕШНОЙ ОТПРАВКИ
+            await loadPrivateChats();
+            
+            // Если это новый чат, добавляем его в список
+            if (currentPrivateChat) {
+                const chats = await fetchPrivateChats();
+                const chatExists = chats.chats.some(c => c.username === currentPrivateChat);
+                if (!chatExists) {
+                    // Принудительно добавляем новый чат в список
+                    const newChat = {
+                        username: currentPrivateChat,
+                        last_activity: Math.floor(Date.now()/1000)
+                    };
+                    renderPrivateChats([newChat, ...chats.chats]);
+                }
+            }
     
         } catch (error) {
             const tempElement = UI.chatBox.querySelector(`[data-id="${tempId}"]`);
@@ -1124,12 +1134,29 @@ document.addEventListener("DOMContentLoaded", function () {
 
     async function loadPrivateChats() {
         try {
-            const res = await fetch('/get_private_chats');
-            if (!res.ok) throw new Error('Network error');
+            const res = await fetch('/get_private_chats', {
+                headers: {
+                    'Cache-Control': 'no-cache'
+                }
+            });
+            
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}`);
+            }
+            
             const data = await res.json();
             renderPrivateChats(data.chats || []); 
+            
+            if (currentPrivateChat) {
+                const chatExists = data.chats.some(c => c.username === currentPrivateChat);
+                if (!chatExists) {
+                    selectGroup(null, 'Общий чат');
+                }
+            }
+            
         } catch (error) {
             console.error("Error loading private chats:", error);
+            showToast('Ошибка загрузки чатов', 'error');
         }
     }
 
@@ -1145,13 +1172,16 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
             }
             
-            // Если текущий чат активен, но его нет в списке (новый чат), добавляем его
+            // Всегда добавляем текущий чат, если он активен
             if (currentPrivateChat && !chats.some(c => c.username === currentPrivateChat)) {
                 chats.unshift({
                     username: currentPrivateChat,
                     last_activity: Math.floor(Date.now()/1000)
                 });
             }
+            
+            // Сортируем чаты по времени последней активности
+            chats.sort((a, b) => b.last_activity - a.last_activity);
             
             UI.privateChatsList.innerHTML = chats.map(chat => `
                 <div class="chat-item ${currentPrivateChat === chat.username ? 'active' : ''}" 

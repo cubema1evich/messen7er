@@ -1330,25 +1330,22 @@ class GetPrivateChatsView(View):
                 return forbidden_response(start_response)
 
             with get_db_cursor() as cursor:
+
                 cursor.execute('''
-                    SELECT u.username, MAX(pm.timestamp) as last_activity
-                    FROM (
-                        SELECT sender_id as partner_id, timestamp 
-                        FROM private_messages 
-                        WHERE receiver_id = ?
-                        UNION ALL
-                        SELECT receiver_id as partner_id, timestamp 
-                        FROM private_messages 
-                        WHERE sender_id = ?
-                    ) pm
-                    JOIN users u ON pm.partner_id = u.id
-                    GROUP BY u.username
+                    SELECT DISTINCT u.username, 
+                           (SELECT MAX(timestamp) FROM private_messages 
+                            WHERE (sender_id = ? AND receiver_id = u.id) 
+                               OR (sender_id = u.id AND receiver_id = ?)) as last_activity
+                    FROM users u
+                    JOIN private_messages pm ON (pm.sender_id = u.id OR pm.receiver_id = u.id)
+                    WHERE (pm.sender_id = ? OR pm.receiver_id = ?)
+                    AND u.id != ?
                     ORDER BY last_activity DESC
-                ''', (user_id, user_id))
+                ''', (user_id, user_id, user_id, user_id, user_id))
                 
                 chats = [{
                     'username': row[0],
-                    'last_activity': row[1] or 0  # Защита от NULL
+                    'last_activity': row[1] or 0
                 } for row in cursor.fetchall()]
 
             return json_response({'chats': chats}, start_response)
