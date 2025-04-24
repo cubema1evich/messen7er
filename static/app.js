@@ -568,20 +568,25 @@ document.addEventListener("DOMContentLoaded", function () {
     async function checkInterfaceUpdates() {
         try {
             // Проверяем обновления групп
-            if (!currentPrivateChat) {
-                const groupsRes = await fetch('/check_groups_updates');
-                if (groupsRes.ok) {
-                    const data = await groupsRes.json();
-                    if (data.updated) {
-                        // Принудительно обновляем список групп и участников
-                        await loadGroups();
-                        if (currentGroup) {
-                            await loadParticipants();
-                        }
+            const lastCheck = parseInt(sessionStorage.getItem('groupsLastCheck') || '0');
+        
+            // Проверяем обновления групп с передачей последнего времени проверки
+            const groupsRes = await fetch(`/check_groups_updates?last_check=${lastCheck}`);
+            if (groupsRes.ok) {
+                const data = await groupsRes.json();
+                if (data.updated) {
+                    // Сохраняем новое время проверки
+                    sessionStorage.setItem('groupsLastCheck', data.new_timestamp || Date.now());
+                    
+                    // Принудительно обновляем список групп
+                    await loadGroups();
+                    
+                    if (currentGroup) {
+                        await loadParticipants();
+                        await loadMessages();  // Также обновляем сообщения
                     }
                 }
             }
-    
             // Проверяем обновления приватных чатов
             const chatsRes = await fetch('/check_private_chats_updates');
             if (chatsRes.ok) {

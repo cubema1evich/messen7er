@@ -1741,26 +1741,41 @@ class CheckGroupsUpdatesView(View):
             if not user_id:
                 return json_response({'updated': False}, start_response)
 
+            last_check = int(request.GET.get('last_check', 0))
+            
             with get_db_cursor() as cursor:
-                # Получаем timestamp последнего изменения групп пользователя
+                # Проверяем изменения в членстве в группах
                 cursor.execute('''
-                    SELECT MAX(gm.timestamp) 
-                    FROM group_members gm
-                    JOIN groups g ON gm.group_id = g.group_id
-                    WHERE gm.user_id = ?
-                ''', (user_id,))
-                last_update = cursor.fetchone()[0] or 0
-                
-                # Проверяем были ли изменения после последнего обновления
-                cursor.execute('''
-                    SELECT 1 FROM group_members gm
-                    JOIN groups g ON gm.group_id = g.group_id
-                    WHERE gm.user_id = ? AND gm.timestamp > ?
+                    SELECT 1 FROM group_members 
+                    WHERE user_id = ? AND timestamp > ?
                     LIMIT 1
-                ''', (user_id, last_update))
+                ''', (user_id, last_check))
+                membership_updated = cursor.fetchone() is not None
                 
-                updated = cursor.fetchone() is not None
-                return json_response({'updated': updated}, start_response)
+                # Проверяем изменения в самих группах (например, переименование)
+                cursor.execute('''
+                    SELECT 1 FROM groups g
+                    JOIN group_members gm ON g.group_id = gm.group_id
+                    WHERE gm.user_id = ? AND g.created_at > ?
+                    LIMIT 1
+                ''', (user_id, last_check))
+                groups_updated = cursor.fetchone() is not None
+                
+                # Проверяем новые сообщения в группах
+                cursor.execute('''
+                    SELECT 1 FROM group_messages
+                    WHERE group_id IN (
+                        SELECT group_id FROM group_members WHERE user_id = ?
+                    ) AND timestamp > ?
+                    LIMIT 1
+                ''', (user_id, last_check))
+                messages_updated = cursor.fetchone() is not None
+                
+                updated = membership_updated or groups_updated or messages_updated
+                return json_response({
+                    'updated': updated,
+                    'new_timestamp': int(time.time())  # Возвращаем текущее время для следующей проверки
+                }, start_response)
                 
         except Exception as e:
             logging.error(f"CheckGroupsUpdates error: {str(e)}")
