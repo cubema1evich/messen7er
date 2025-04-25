@@ -1517,8 +1517,13 @@ document.addEventListener("DOMContentLoaded", function () {
             const data = await res.json();
             
             UI.membersList.innerHTML = data.members
-                .map(m => `<div class="member-item">${m}</div>`)
-                .join('');
+            .map(m => `
+                <div class="member-item">
+                    <div class="member-avatar">${m[0].toUpperCase()}</div>
+                    <span class="member-name">${m}</span>
+                    <div class="member-status ${Math.random() > 0.3 ? 'online' : 'offline'}"></div>
+                </div>
+            `).join('');
                 
         } catch (error) {
             console.error("Error loading participants:", error);
