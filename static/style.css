@@ -12,19 +12,19 @@ body {
 }
 
 .chat-container {
-    width: 800px; margin: 80px auto 20px; padding: 20px; background-color: #fff; 
+    width: 1200px; margin: 80px auto 20px; padding: 20px; background-color: #fff; 
     border: 1px solid #ccc; border-radius: 15px; box-shadow: 0 8px 20px rgba(0,0,0,0.1); 
     flex-grow: 1; position: relative; height: 70vh;
 }
 
 .chat-box {
-    height: 70vh; overflow-y: auto; flex-grow: 1; border: 1px solid #ccc; 
-    padding: 10px; margin-bottom: 10px; background-color: #f9f9f9; 
+    height: 70vh; width: 100%; overflow-y: auto; flex-grow: 1; border: 1px solid #ccc; 
+    padding: 0px; margin-bottom: 10px; background-color: #f9f9f9; 
     border-radius: 10px; scroll-behavior: smooth; transition: scroll-top 0.3s ease;
 }
 
 .message {
-    background: var(--primary); padding: 18px; margin: 15px 25px 10px; 
+    background: var(--primary); max-width: 100%; padding: 18px; margin: 15px 50px 10px; 
     border-radius: 15px 15px 15px 3px; color: var(--text); 
     position: relative; animation: messageSlide 0.4s ease-out;
 }
@@ -35,7 +35,7 @@ body {
 }
 
 .sidebar {
-    width: 280px; background: linear-gradient(145deg, #FFDAB9 0%, #FFB6C1 100%); 
+    width: 250px; background: linear-gradient(145deg, #FFDAB9 0%, #FFB6C1 100%); 
     position: fixed; top: 0; left: -350px; height: 100vh; z-index: 1000; 
     transition: left 0.3s ease-in-out; padding: 20px; 
     box-shadow: 5px 0 15px rgba(0,0,0,0.1);
@@ -82,12 +82,76 @@ body {
 
 .username { font-weight: bold; color: #5A3A3A; margin-bottom: 8px; white-space: nowrap; }
 
-.logout-btn, .send-btn {
+.logout-btn {
     background: var(--secondary); color: white; border: none; 
     padding: 6px 12px; border-radius: 4px; cursor: pointer; transition: background 0.3s;
 }
 .logout-btn { width: 100%; font-size: 14px; }
 .logout-btn:hover, .send-btn:hover { background: #FF9BAF; }
+
+/* Общий стиль для всех кнопок */
+.send-btn,
+.emoji-btn,
+.file-btn {
+    width: 40px;              /* Фиксированный размер */
+    height: 40px;
+    border-radius: 50%;       /* Идеальная окружность */
+    background: #FFB6C1;      /* Основной цвет из темы */
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    padding: 8px;             /* Внутренний отступ */
+}
+
+.send-btn {
+    order: 3; /* Отправка последней в ряду */
+    margin-left: -10px;
+}
+
+/* Стрелка внутри кнопки */
+.send-btn::after {
+    content: '';
+    display: block;
+    width: 24px;
+    height: 24px;
+    background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M2 21L23 12 2 3v7l15 2-15 2z"/></svg>');
+    transition: transform 0.2s ease;
+}
+
+.emoji-btn:hover,
+.file-btn:hover,
+.send-btn:hover {
+    background: #FF9BAF;      /* Темнее на 15% */
+    transform: scale(1.1);    /* Увеличение */
+    box-shadow: 0 3px 8px rgba(255,155,175,0.3);
+}
+
+.emoji-btn:active,
+.file-btn:active,
+.send-btn:active {
+    transform: scale(0.95);   /* Легкое сжатие */
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.send-btn:hover::after {
+    transform: translateX(2px);
+}
+
+
+/* Отключенное состояние */
+.send-btn:disabled {
+    background: #e0e0e0;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.send-btn:disabled::after {
+    opacity: 0.5;
+}
 
 .create-group-btn {
     background: rgba(255,255,255,0.9); border: 2px dashed #FF55E8; 
@@ -108,11 +172,15 @@ body {
 .group-item:hover { transform: scale(1.05) translateX(2%); background: white; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
 .group-item.active { background: #FFB6C1; font-weight: 600; }
 
-button {
-    background: var(--secondary); color: white; padding: 12px 25px; 
-    border-radius: 8px; border: none; font-weight: 1000; transition: 0.3s; cursor: pointer;
+.file-btn {
+    font-size: 30px !important;       /* Размер иконки скрепки */
 }
-button:hover { background: #FF9BAF; transform: translateY(-2px); box-shadow: 0 5px 12px rgba(255,182,193,0.3); }
+
+.file-btn:hover {
+    transform: scale(1.1);             /* Единообразное увеличение как у эмодзи */
+    background: #FF9BAF !important;    /* Тот же ховер-цвет, что и у эмодзи */
+    box-shadow: 0 3px 8px rgba(255,155,175,0.3); /* Согласованная тень при наведении */
+}
 
 .emoji-picker {
     position: absolute; bottom: 60px; right: 10px; background: #FFB6C1; 
@@ -125,20 +193,35 @@ button:hover { background: #FF9BAF; transform: translateY(-2px); box-shadow: 0 5
 .emoji-picker span:hover { transform: scale(1.2); }
 
 .emoji-btn {
-    background-color: #FFB6C1 !important; border-radius: 8px !important; 
-    padding: 8px 12px !important; transition: all 0.3s ease !important; border: none !important;
+    font-size: 24px !important;       /* Размер эмодзи */
 }
-.emoji-btn:hover { background-color: #FF9BAF !important; transform: scale(1.05) !important; }
-.emoji-btn:active { transform: scale(0.95) !important; }
+
+.buttons-column {
+    display: flex;
+    flex-direction: column;  /* Столбик */
+    gap: 8px;                /* Расстояние между кнопками */
+    order: 1;                /* Позиция в общем контейнере */
+    margin-right: 12px;      /* Отступ от поля ввода */
+}
 
 .message-input-container {
-    display: flex; gap: 10px; padding: 15px; background: white; 
-    border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center; /* Вертикальное выравнивание по центру */
+    gap: 12px; /* Расстояние между элементами */
+    padding: 15px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    
+    /* Новые свойства для вложенных элементов */
+    flex-wrap: nowrap; /* Запрет переноса элементов на новую строку */
 }
 
 #message-input {
     flex-grow: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; 
-    font-size: 16px; resize: none; overflow: hidden; min-height: 50px; max-height: 200px;
+    font-size: 16px; resize: none; overflow: hidden; min-height: 50px; max-width: calc(100% - 120px);
+    margin: 0 10px;
+
 }
 
 .private-chat-section { padding: 15px; border-top: none; margin-top: 10px; }
@@ -297,7 +380,7 @@ button:hover { background: #FF9BAF; transform: translateY(-2px); box-shadow: 0 5
 .sidebar-right {
     position: fixed;
     right: -300px;
-    width: 300px;
+    width: 250px;
     height: 100%;
     background: #2c3e50;
     transition: 0.3s;
