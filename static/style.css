@@ -511,12 +511,18 @@ body {
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     animation: slideIn 0.3s ease-out;
     border: 1px solid rgba(255, 182, 193, 0.3);
+    cursor: pointer;
 }
 
 .member-item:hover {
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    background: #fff;
+    background: rgba(255, 182, 193, 0.2) !important;
+    transform: translateX(5px);
+}
+
+.member-item:active {
+    transform: scale(0.98);
 }
 
 .member-avatar {

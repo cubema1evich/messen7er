@@ -35,6 +35,7 @@ document.addEventListener("DOMContentLoaded", function () {
     };
 
     window.selectPrivateChat = async function(username) {
+        UI.membersSidebar.classList.remove('active');
         currentPrivateChat = username;
         currentGroup = null;
         sessionStorage.setItem('currentChat', JSON.stringify({
@@ -1544,7 +1545,7 @@ document.addEventListener("DOMContentLoaded", function () {
             
             UI.membersList.innerHTML = data.members
             .map(m => `
-                <div class="member-item">
+                <div class="member-item" onclick="handleMemberClick('${m}')">
                     <div class="member-avatar">${m[0].toUpperCase()}</div>
                     <span class="member-name">${m}</span>
                     <div class="member-status ${Math.random() > 0.3 ? 'online' : 'offline'}"></div>
@@ -1555,6 +1556,19 @@ document.addEventListener("DOMContentLoaded", function () {
             console.error("Error loading participants:", error);
         }
     }
-    
+    window.handleMemberClick = function(username) {
+        // Закрываем сайдбар участников
+        UI.membersSidebar.classList.remove('active');
+        
+        // Если это текущий пользователь - не открываем чат
+        const currentUser = sessionStorage.getItem('username');
+        if (username === currentUser) return;
+        
+        // Открываем личный чат
+        selectPrivateChat(username);
+        
+        // Обновляем список чатов
+        loadPrivateChats();
+    };
     window.changeSearchPage = changeSearchPage;
 });
