@@ -509,9 +509,10 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     
     async function deleteMessageById(messageId, messageType) {
-        if (!confirm("Удалить сообщение?")) return;
-        
         try {
+            const result = await showConfirmModal();
+            if (!result) return;
+    
             const res = await fetch(`/delete_message/${messageId}?type=${messageType}`, {
                 method: 'DELETE',
                 headers: {
@@ -521,17 +522,53 @@ document.addEventListener("DOMContentLoaded", function () {
             
             if (res.ok) {
                 const messageElement = document.querySelector(`[data-id="${messageId}"]`);
-                if (messageElement) {
-                    messageElement.remove();
-                }
+                if (messageElement) messageElement.remove();
             } else {
                 const error = await res.json();
                 throw new Error(error.error || 'Ошибка удаления');
             }
         } catch (error) {
             console.error("Ошибка удаления:", error);
-            alert('Ошибка при удалении сообщения: ' + error.message);
+            showToast('Ошибка при удалении: ' + error.message, 'error');
         }
+    }
+
+    function showConfirmModal() {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('confirm-modal');
+            const closeBtn = modal.querySelector('.confirm-close');
+            const cancelBtn = document.getElementById('confirm-cancel');
+            const deleteBtn = document.getElementById('confirm-delete');
+    
+            modal.classList.add('show');
+    
+            const cleanup = () => {
+                modal.classList.remove('show');
+                deleteBtn.removeEventListener('click', deleteHandler);
+                cancelBtn.removeEventListener('click', cancelHandler);
+                closeBtn.removeEventListener('click', cancelHandler);
+                modal.removeEventListener('click', backdropHandler);
+            };
+    
+            const deleteHandler = () => {
+                cleanup();
+                resolve(true);
+            };
+    
+            const cancelHandler = () => {
+                cleanup();
+                resolve(false);
+            };
+    
+            const backdropHandler = (e) => {
+                if (e.target === modal) cancelHandler();
+            };
+    
+            deleteBtn.addEventListener('click', deleteHandler);
+            cancelBtn.addEventListener('click', cancelHandler);
+            closeBtn.addEventListener('click', cancelHandler);
+            modal.addEventListener('click', backdropHandler);
+        });
     }
     
     async function enableMessageEditing(messageElement, messageId, messageType) {
