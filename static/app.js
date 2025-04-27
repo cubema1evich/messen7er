@@ -463,9 +463,15 @@ document.addEventListener("DOMContentLoaded", function () {
         contextMenu.style.left = `${rect.left}px`;
         contextMenu.style.top = `${rect.bottom}px`;
         contextMenu.innerHTML = `
-            <div class="context-menu-item" data-action="edit">Редактировать</div>
-            <div class="context-menu-item" data-action="delete">Удалить</div>
-        `;
+        <div class="context-menu-item" data-action="edit">
+            <span class="menu-icon">✏️</span>
+            Редактировать
+        </div>
+        <div class="context-menu-item" data-action="delete">
+            <span class="menu-icon">🗑️</span>
+            Удалить
+        </div>
+    `;
     
         document.body.appendChild(contextMenu);
         contextMenu.style.display = 'block';
