@@ -1,4 +1,23 @@
 document.addEventListener("DOMContentLoaded", function () {
+
+    const updateAuthButtons = () => {
+        const authButtons = document.getElementById('auth-buttons');
+        const username = sessionStorage.getItem('username');
+        
+        if (username) {
+            authButtons.innerHTML = `
+                <span class="username-display">${username}</span>
+                <button onclick="logout()" class="logout-btn">Выход</button>
+            `;
+        } else {
+            authButtons.innerHTML = `
+                <button onclick="window.location.href='/register'" class="auth-btn">Регистрация 📝</button>
+                <button onclick="window.location.href='/login'" class="auth-btn">Вход 🔑</button>
+            `;
+        }
+    };
+
+    updateAuthButtons();
     // Глобальные функции выбора чатов
     window.selectGroup = function(groupId, groupName, element) {
         currentGroup = groupId;
@@ -120,6 +139,13 @@ document.addEventListener("DOMContentLoaded", function () {
         UI.membersSidebar.classList.contains('active')) {
         UI.membersSidebar.classList.remove('active');
     }
+
+    window.logout = function() {
+        sessionStorage.clear();
+        document.cookie = 'user_id=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+        updateAuthButtons();
+        window.location.href = '/login';
+    };
 });
 
     // Обработчик закрытия сайдбара через крестик
