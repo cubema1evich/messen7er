@@ -6,7 +6,7 @@ document.addEventListener("DOMContentLoaded", function () {
         
         if (username) {
             authButtons.innerHTML = `
-                <span class="username-display">${username}</span>
+                <span class="username-display">Вы вошли: ${username}</span>
                 <button onclick="logout()" class="logout-btn">Выход</button>
             `;
         } else {
