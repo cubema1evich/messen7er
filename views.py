@@ -388,45 +388,31 @@ class SendMessageView(View):
                         message_type = 'general'
                         message_id = cursor.lastrowid
 
-                    # Обработка файлов (только если есть файлы и сообщение было сохранено)
                     if files and message_id:
                         unique_files = set()
                         for file in files:
                             if file.filename and file.file:
                                 file_content = file.file.read()
                                 file_hash = hashlib.md5(file_content).hexdigest()
-                                file.file.seek(0)
-
-                                # Проверка на дубликаты
-                                cursor.execute('''
-                                    SELECT id FROM attachments 
-                                    WHERE file_path = ? AND message_type = ?
-                                ''', (f'/static/uploads/{file_hash}_{secure_filename(file.filename)}', message_type))
-                                
-                                if cursor.fetchone():
-                                    continue
+                                file.file.seek(0)  
                                 
                                 if file_hash in unique_files:
                                     continue
                                 unique_files.add(file_hash)
-
+                                
                                 filename = secure_filename(file.filename)
                                 unique_name = f"{file_hash}_{filename}"
                                 file_path = os.path.join('static', 'uploads', unique_name)
                                 
                                 if not os.path.exists(file_path):
                                     with open(file_path, 'wb') as f:
-                                        f.write(file.file.read())
+                                        f.write(file_content)
                                 
                                 cursor.execute('''
                                     INSERT INTO attachments 
                                     (message_type, message_id, file_path, mime_type, filename)
                                     VALUES (?, ?, ?, ?, ?)
-                                ''', ('private' if message_type == 'private' else message_type, 
-                                    message_id, 
-                                    f'/static/uploads/{unique_name}', 
-                                    file.type, 
-                                    filename))
+                                ''', (message_type, message_id, f'/static/uploads/{unique_name}', file.type, filename))
                                 
                                 if files and message_id and not unique_files:
                                     cursor.connection.rollback()

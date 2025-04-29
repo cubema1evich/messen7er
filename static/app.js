@@ -653,7 +653,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     
                     if (currentGroup) {
                         await loadParticipants();
-                        await loadMessages();  // Также обновляем сообщения
+                        await loadMessages();  
                     }
                 }
             }
@@ -690,7 +690,6 @@ document.addEventListener("DOMContentLoaded", function () {
             const res = await fetch(url);
             if (res.ok) {
                 const data = await res.json();
-                // Удаляем сообщения, которых нет в ответе сервера
                 data.existingIds = data.existingIds || [];
                 messageElements.forEach(el => {
                     if (!data.existingIds.includes(el.dataset.id)) {
@@ -996,15 +995,25 @@ document.addEventListener("DOMContentLoaded", function () {
                     timestamp: Math.floor(Date.now()/1000),
                     temp: true,
                     type: currentPrivateChat ? 'private' : (currentGroup ? 'group' : 'general'),
-                    attachments: Array.from(files).map(file => ({
-                        filename: file.name,
-                        mime_type: file.type,
-                        path: URL.createObjectURL(file)
-                    }))
+                    attachments: []
                 };
                 
+                // Добавляем только уникальные файлы во временное сообщение
+                const uniqueFiles = new Set();
+                Array.from(files).forEach(file => {
+                    const key = `${file.name}-${file.size}`;
+                    if (!uniqueFiles.has(key)) {
+                        tempMessage.attachments.push({
+                            filename: file.name,
+                            mime_type: file.type,
+                            path: URL.createObjectURL(file)
+                        });
+                        uniqueFiles.add(key);
+                    }
+                });
+                
                 displayMessages([tempMessage]);
-            }
+            }    
     
             const formData = new FormData();
             if (message) formData.append('message', message);
