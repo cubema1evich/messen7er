@@ -454,6 +454,7 @@ document.addEventListener("DOMContentLoaded", function () {
         messageElement.dataset.type = messageType;
     
         const rect = messageElement.getBoundingClientRect();
+        const hasAttachments = messageElement.querySelector('.attachments') !== null;
     
         const existingMenu = document.querySelector('.context-menu');
         if (existingMenu) existingMenu.remove();
@@ -462,23 +463,47 @@ document.addEventListener("DOMContentLoaded", function () {
         contextMenu.className = 'context-menu';
         contextMenu.style.left = `${rect.left}px`;
         contextMenu.style.top = `${rect.bottom}px`;
-        contextMenu.innerHTML = `
-        <div class="context-menu-item" data-action="edit">
-            <span class="menu-icon">✏️</span>
-            Редактировать
-        </div>
-        <div class="context-menu-item" data-action="delete">
-            <span class="menu-icon">🗑️</span>
-            Удалить
-        </div>
-    `;
+        
+        // Базовые пункты меню
+        let menuHTML = `
+            <div class="context-menu-item" data-action="delete">
+                <span class="menu-icon">🗑️</span>
+                Удалить
+            </div>
+        `;
+    
+        // Добавляем пункт редактирования только для текстовых сообщений
+        if (!hasAttachments) {
+            menuHTML += `
+                <div class="context-menu-item" data-action="edit">
+                    <span class="menu-icon">✏️</span>
+                    Редактировать
+                </div>
+            `;
+        }
+    
+        // Добавляем пункты для работы с вложениями
+        if (hasAttachments) {
+            menuHTML += `
+                <div class="context-menu-item" data-action="view-attachments">
+                    <span class="menu-icon">👁️</span>
+                    Просмотреть вложения
+                </div>
+                <div class="context-menu-item" data-action="download-attachments">
+                    <span class="menu-icon">📥</span>
+                    Скачать все
+                </div>
+            `;
+        }
+    
+        contextMenu.innerHTML = menuHTML;
     
         document.body.appendChild(contextMenu);
         contextMenu.style.display = 'block';
     
         contextMenu.querySelectorAll('.context-menu-item').forEach(item => {
             item.addEventListener('click', (e) => {
-                handleContextMenuAction(e, messageId, messageType);
+                handleContextMenuAction(e, messageId, messageType, hasAttachments);
                 contextMenu.remove();
             });
         });
@@ -492,8 +517,8 @@ document.addEventListener("DOMContentLoaded", function () {
         document.addEventListener('click', closeMenu);
     }    
     
-    async function handleContextMenuAction(e, messageId, messageType) {
-        const action = e.target.dataset.action;
+    async function handleContextMenuAction(e, messageId, messageType, hasAttachments) {
+        const action = e.target.closest('.context-menu-item').dataset.action;
         const messageElement = document.querySelector(`[data-id="${messageId}"]`);
         
         if (!messageElement) {
@@ -505,6 +530,10 @@ document.addEventListener("DOMContentLoaded", function () {
             await deleteMessageById(messageId, messageType);
         } else if (action === 'edit') {
             enableMessageEditing(messageElement, messageId, messageType);
+        } else if (action === 'view-attachments') {
+            viewAttachments(messageElement);
+        } else if (action === 'download-attachments') {
+            downloadAllAttachments(messageElement);
         }
     }
     
@@ -531,6 +560,85 @@ document.addEventListener("DOMContentLoaded", function () {
             console.error("Ошибка удаления:", error);
             showToast('Ошибка при удалении: ' + error.message, 'error');
         }
+    }
+
+    function viewAttachments(messageElement) {
+        const attachments = messageElement.querySelector('.attachments');
+        if (!attachments) return;
+    
+        // Создаем модальное окно для просмотра
+        const modal = document.createElement('div');
+        modal.className = 'attachments-modal';
+        
+        let modalContent = '<div class="attachments-modal-content">';
+        modalContent += '<span class="close-modal-btn">&times;</span>';
+        modalContent += '<h3>Вложения</h3>';
+        modalContent += '<div class="attachments-container">';
+        
+        // Добавляем все вложения в модальное окно
+        attachments.querySelectorAll('.attachment-image, .attachment-file').forEach(att => {
+            if (att.classList.contains('attachment-image')) {
+                const imgSrc = att.querySelector('img').src;
+                modalContent += `
+                    <div class="modal-attachment">
+                        <img src="${imgSrc}" alt="Attachment">
+                        <a href="${imgSrc}" download class="download-btn">Скачать</a>
+                    </div>
+                `;
+            } else {
+                const fileLink = att.querySelector('a').href;
+                const fileName = att.querySelector('a').textContent;
+                modalContent += `
+                    <div class="modal-attachment">
+                        <div class="file-icon">📄</div>
+                        <span class="file-name">${fileName}</span>
+                        <a href="${fileLink}" download class="download-btn">Скачать</a>
+                    </div>
+                `;
+            }
+        });
+        
+        modalContent += '</div></div>';
+        modal.innerHTML = modalContent;
+        
+        // Закрытие модального окна
+        modal.querySelector('.close-modal-btn').addEventListener('click', () => {
+            modal.remove();
+        });
+        
+        document.body.appendChild(modal);
+    }
+    
+    function downloadAllAttachments(messageElement) {
+        const attachments = messageElement.querySelectorAll('.attachment-image img, .attachment-file a');
+        if (!attachments.length) return;
+    
+        // Для каждого вложения создаем скрытую ссылку и кликаем по ней
+        attachments.forEach(att => {
+            const link = document.createElement('a');
+            link.href = att.tagName === 'IMG' ? att.src : att.href;
+            link.download = att.tagName === 'IMG' ? 
+                att.parentElement.querySelector('.file-name').textContent : 
+                att.textContent;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+        
+        showToast('Загрузка началась', 'success');
+    }
+
+    function showToast(message, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        
+        setTimeout(() => {
+            toast.classList.add('fade-out');
+            setTimeout(() => toast.remove(), 500);
+        }, 3000);
     }
 
     function showConfirmModal() {
