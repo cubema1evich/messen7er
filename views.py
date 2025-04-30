@@ -429,7 +429,7 @@ class SendMessageView(View):
                 start_response, 
                 '500 Internal Server Error'
             )
-        
+          
 class DeleteMessageView(View):
     def get_user_id(self, environ):
         request = Request(environ)
@@ -444,15 +444,6 @@ class DeleteMessageView(View):
             query = parse_qs(environ['QUERY_STRING'])
             message_type = query.get('type', ['general'])[0]
 
-            # Проверка допустимых типов
-            valid_types = ['general', 'group', 'private']
-            if message_type not in valid_types:
-                return json_response(
-                    {'error': 'Неверный тип сообщения'},
-                    start_response,
-                    '400 Bad Request'
-                )
-            
             user_id = self.get_user_id(environ)
             if not user_id:
                 return forbidden_response(start_response)
@@ -463,30 +454,65 @@ class DeleteMessageView(View):
                 'private': ('private_messages', 'id', 'sender_id')
             }
 
+            if message_type not in table_info:
+                return json_response(
+                    {'error': 'Invalid message type'}, 
+                    start_response, 
+                    '400 Bad Request'
+                )
+
             table, id_col, user_col = table_info[message_type]
 
             with get_db_cursor() as cursor:
-                # Проверка прав доступа
-                cursor.execute(f'''
-                    SELECT {user_col} 
-                    FROM {table} 
-                    WHERE {id_col} = ?
-                ''', (message_id,))
-                result = cursor.fetchone()
-
-                if not result:
-                    return json_response(
-                        {'error': 'Сообщение не найдено'}, 
-                        start_response, 
-                        '404 Not Found'
-                    )
-
-                if int(result[0]) != int(user_id):
-                    return json_response(
-                        {'error': 'У вас нет прав для удаления'}, 
-                        start_response, 
-                        '403 Forbidden'
-                    )
+                # Для групповых сообщений проверяем права
+                if message_type == 'group':
+                    # Получаем group_id сообщения
+                    cursor.execute(f'''
+                        SELECT group_id FROM group_messages 
+                        WHERE message_id = ?
+                    ''', (message_id,))
+                    group_result = cursor.fetchone()
+                    
+                    if not group_result:
+                        return json_response(
+                            {'error': 'Message not found'}, 
+                            start_response, 
+                            '404 Not Found'
+                        )
+                    
+                    group_id = group_result[0]
+                    
+                    # Проверяем права пользователя
+                    cursor.execute('''
+                        SELECT role FROM group_members 
+                        WHERE group_id = ? AND user_id = ?
+                    ''', (group_id, user_id))
+                    role_result = cursor.fetchone()
+                    
+                    if not role_result:
+                        return json_response(
+                            {'error': 'Not a group member'}, 
+                            start_response, 
+                            '403 Forbidden'
+                        )
+                    
+                    role = role_result[0]
+                    
+                    # Если не админ, проверяем что это его сообщение
+                    if role not in ('owner', 'admin'):
+                        cursor.execute(f'''
+                            SELECT {user_col} 
+                            FROM {table} 
+                            WHERE {id_col} = ?
+                        ''', (message_id,))
+                        message_owner = cursor.fetchone()
+                        
+                        if not message_owner or int(message_owner[0]) != user_id:
+                            return json_response(
+                                {'error': 'Недостаточно прав'}, 
+                                start_response, 
+                                '403 Forbidden'
+                            )
 
                 # Удаляем сообщение
                 cursor.execute(f'''
@@ -494,7 +520,7 @@ class DeleteMessageView(View):
                     WHERE {id_col} = ?
                 ''', (message_id,))
 
-                # Удаляем ВСЕ вложения независимо от типа
+                # Удаляем вложения
                 cursor.execute('''
                     DELETE FROM attachments 
                     WHERE message_type = ? 
@@ -514,87 +540,7 @@ class DeleteMessageView(View):
                 start_response, 
                 '500 Internal Server Error'
             )
-        
-    def response(self, environ, start_response):
-        try:
-            message_id = int(environ['url_params'][0])
-            query = parse_qs(environ['QUERY_STRING'])
-            message_type = query.get('type', ['general'])[0]
 
-            if message_type not in ['general', 'group', 'private']:
-                return json_response(
-                    {'error': 'Invalid message type'}, 
-                    start_response, 
-                    '400 Bad Request'
-                )
-
-            # Проверка допустимых типов
-            valid_types = ['general', 'group', 'private']
-            if message_type not in valid_types:
-                return json_response(
-                    {'error': 'Неверный тип сообщения'},
-                    start_response,
-                    '400 Bad Request'
-                )
-            
-            user_id = self.get_user_id(environ)
-            if not user_id:
-                return forbidden_response(start_response)
-
-            table_info = {
-                'general': ('messages', 'message_id', 'user_id'),
-                'group': ('group_messages', 'message_id', 'user_id'),
-                'private': ('private_messages', 'id', 'sender_id')
-            }
-
-            if message_type not in table_info:
-                return json_response({'error': 'Invalid message type'}, start_response, '400 Bad Request')
-
-            table, id_col, user_col = table_info[message_type]
-
-            with get_db_cursor() as cursor:
-                # Проверка прав доступа
-                cursor.execute(f'''
-                    SELECT {user_col} 
-                    FROM {table} 
-                    WHERE {id_col} = ?
-                ''', (message_id,))
-                result = cursor.fetchone()
-
-                if not result:
-                    return json_response({'error': 'Сообщение не найдено'}, start_response, '404 Not Found')
-
-                if int(result[0]) != int(user_id):
-                    return json_response(
-                        {'error': 'У вас нет прав для удаления'}, 
-                        start_response, 
-                        '403 Forbidden'
-                    )
-
-                # Удаляем сообщение
-                cursor.execute(f'''
-                    DELETE FROM {table} 
-                    WHERE {id_col} = ?
-                ''', (message_id,))
-
-                # Удаляем вложения
-                if message_type != 'private':
-                    cursor.execute('''
-                        DELETE FROM attachments 
-                        WHERE message_type = ? 
-                        AND message_id = ?
-                    ''', (message_type, message_id))
-
-                cursor.connection.commit()
-                return json_response({'status': 'Сообщение удалено'}, start_response)
-
-        except Exception as e:
-            logging.error(f"Ошибка удаления: {str(e)}")
-            return json_response(
-                {'error': 'Внутренняя ошибка сервера'}, 
-                start_response, 
-                '500 Internal Server Error'
-            )                            
 class RegisterView(TemplateView):
     template = 'templates/register.html'
 
@@ -781,25 +727,26 @@ class CreateGroupView(View):
                     )
                 
                 # Создаем группу
+                timestamp = int(time.time())
                 cursor.execute('''
                     INSERT INTO groups (name, creator_id, created_at)
                     VALUES (?, ?, ?)
-                ''', (group_name, user_id, int(time.time())))
+                ''', (group_name, user_id, timestamp))
                 
                 group_id = cursor.lastrowid
                 
-                # Добавляем создателя
+                # Добавляем создателя как владельца
                 cursor.execute('''
-                    INSERT INTO group_members (group_id, user_id, role, timestamp)
+                    INSERT INTO group_members (group_id, user_id, role, joined_at)
                     VALUES (?, ?, ?, ?)
-                ''', (group_id, user_id, 'owner', int(time.time())))
+                ''', (group_id, user_id, 'owner', timestamp))
                 
                 cursor.connection.commit()
                 return json_response(
                     {'status': 'success', 'group_id': group_id}, 
                     start_response
                 )
-
+            
         except Exception as e:
             logging.error(f"Error creating group: {str(e)}", exc_info=True)
             return json_response(
@@ -829,7 +776,32 @@ class AddToGroupView(View):
             role = post_data.get('role', 'member')
 
             with get_db_cursor() as cursor:
-                # Проверка существования группы
+                # Проверяем права текущего пользователя
+                cursor.execute('''
+                    SELECT role FROM group_members 
+                    WHERE group_id = ? AND user_id = ?
+                ''', (group_id, user_id))
+                current_user_role = cursor.fetchone()
+                
+                if not current_user_role:
+                    return json_response(
+                        {'error': 'Вы не состоите в этой группе', 'code': 'not_member'}, 
+                        start_response, 
+                        '403 Forbidden'
+                    )
+                
+                if current_user_role[0] not in ['owner', 'admin']:
+                    return json_response(
+                        {
+                            'error': 'Недостаточно прав для добавления участников',
+                            'code': 'insufficient_permissions',
+                            'required_role': 'admin'
+                        }, 
+                        start_response, 
+                        '403 Forbidden'
+                    )
+                
+                # Проверяем существование группы
                 cursor.execute('SELECT name FROM groups WHERE group_id = ?', (group_id,))
                 group = cursor.fetchone()
                 if not group:
@@ -839,7 +811,7 @@ class AddToGroupView(View):
                         '404 Not Found'
                     )
                 
-                # Добавление в группу
+                # Добавляем в группу
                 cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
                 target_user = cursor.fetchone()
                 if not target_user:
@@ -849,40 +821,37 @@ class AddToGroupView(View):
                         '404 Not Found'
                     )
                 
+                target_user_id = target_user[0]
+                
+                # Проверяем, что не пытаемся изменить права владельца
+                if target_user_id == user_id and role != 'owner':
+                    return json_response(
+                        {'error': 'Нельзя изменить свои права'}, 
+                        start_response, 
+                        '400 Bad Request'
+                    )
+                
                 try:
+                    timestamp = int(time.time())
                     cursor.execute('''
-                        UPDATE group_members 
-                        SET timestamp = ?
-                        WHERE group_id = ?
-                    ''', (int(time.time()), group_id))
-
-                    cursor.execute('''
-                        INSERT INTO group_members (group_id, user_id, role)
-                        VALUES (?, ?, ?)
-                    ''', (group_id, target_user[0], role))
+                        INSERT OR REPLACE INTO group_members 
+                        (group_id, user_id, role, joined_at)
+                        VALUES (?, ?, ?, ?)
+                    ''', (group_id, target_user_id, role, timestamp))
                     
+                    # Добавляем системное сообщение
                     cursor.execute('''
                         INSERT INTO group_messages 
                         (group_id, user_id, message_text, timestamp)
                         VALUES (?, 0, ?, ?)
-                    ''', (group_id, f'Пользователь {username} добавлен в группу', int(time.time())))
+                    ''', (group_id, f'Пользователь {username} добавлен в группу как {role}', timestamp))
                     
                     cursor.connection.commit()
                     
-                    # Отправляем обновление всем участникам группы
-                    cursor.execute('''
-                        SELECT user_id FROM group_members WHERE group_id = ?
-                    ''', (group_id,))
-                    members = [row[0] for row in cursor.fetchall()]
-                    
-                    cursor.connection.commit()
-                    
-                    # Возвращаем имя группы для обновления интерфейса
                     return json_response({
                         'status': 'success',
                         'group_id': group_id,
                         'group_name': group[0],
-                        'updated_timestamp': int(time.time())  # Добавляем новый timestamp
                     }, start_response)
                     
                 except sqlite3.IntegrityError:
@@ -891,7 +860,6 @@ class AddToGroupView(View):
                         start_response, 
                         '400 Bad Request'
                     )
-
         except Exception as e:
             logging.error(f"AddToGroup error: {str(e)}")
             return json_response(
@@ -906,34 +874,23 @@ class GetGroupsView(View):
         user_id = request.cookies.get('user_id')
         if not user_id:
             return forbidden_response(start_response)
-        
-        if not user_id:
-            return json_response(
-                {'error': 'Not authorized'}, 
-                start_response, 
-                '401 Unauthorized'
-            )
 
-        conn = sqlite3.connect('data.db')
-        cursor = conn.cursor()
-        
-        try:
+        with get_db_cursor() as cursor:
             cursor.execute('''
-                SELECT g.group_id, g.name 
+                SELECT g.group_id, g.name, gm.role
                 FROM groups g
                 JOIN group_members gm ON g.group_id = gm.group_id
                 WHERE gm.user_id = ?
+                ORDER BY g.name
             ''', (user_id,))
             
             groups = [{
                 'id': row[0],
-                'name': row[1]
+                'name': row[1],
+                'role': row[2]
             } for row in cursor.fetchall()]
             
             return json_response(groups, start_response)
-        
-        finally:
-            conn.close()
 
 class GetGroupMessagesView(View):
     def response(self, environ, start_response):
@@ -1091,22 +1048,54 @@ class LeaveGroupView(View):
                 try:
                     cursor.execute('BEGIN TRANSACTION')
                     
-                    # Получаем username перед удалением
-                    cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
-                    username = cursor.fetchone()[0]
-                    
-                    # Удаляем пользователя из группы
+                    # Проверяем роль пользователя
                     cursor.execute('''
-                        DELETE FROM group_members 
+                        SELECT role, username FROM group_members
+                        JOIN users ON group_members.user_id = users.id
                         WHERE group_id = ? AND user_id = ?
                     ''', (group_id, user_id))
+                    result = cursor.fetchone()
                     
-                    # Добавляем системное сообщение
-                    cursor.execute('''
-                        INSERT INTO group_messages 
-                        (group_id, user_id, message_text, timestamp)
-                        VALUES (?, 0, ?, ?)
-                    ''', (group_id, f'Пользователь {username} покинул группу', int(time.time())))
+                    if not result:
+                        return json_response(
+                            {'error': 'User not in group'}, 
+                            start_response, 
+                            '400 Bad Request'
+                        )
+                    
+                    role, username = result
+                    
+                    # Если это владелец - удаляем группу
+                    if role == 'owner':
+                        # Удаляем всех участников
+                        cursor.execute('''
+                            DELETE FROM group_members WHERE group_id = ?
+                        ''', (group_id,))
+                        
+                        # Удаляем группу
+                        cursor.execute('''
+                            DELETE FROM groups WHERE group_id = ?
+                        ''', (group_id,))
+                        
+                        # Добавляем системное сообщение
+                        cursor.execute('''
+                            INSERT INTO group_messages 
+                            (group_id, user_id, message_text, timestamp)
+                            VALUES (?, 0, ?, ?)
+                        ''', (group_id, f'Группа удалена владельцем {username}', int(time.time())))
+                    else:
+                        # Просто удаляем пользователя
+                        cursor.execute('''
+                            DELETE FROM group_members 
+                            WHERE group_id = ? AND user_id = ?
+                        ''', (group_id, user_id))
+                        
+                        # Добавляем системное сообщение
+                        cursor.execute('''
+                            INSERT INTO group_messages 
+                            (group_id, user_id, message_text, timestamp)
+                            VALUES (?, 0, ?, ?)
+                        ''', (group_id, f'Пользователь {username} покинул группу', int(time.time())))
                     
                     cursor.connection.commit()
                     
@@ -1123,14 +1112,13 @@ class LeaveGroupView(View):
                         start_response, 
                         '500 Internal Server Error'
                     )
-
         except Exception as e:
             logging.error(f"LeaveGroup error: {str(e)}")
             return json_response(
                 {'error': 'Internal Server Error'}, 
                 start_response, 
                 '500 Internal Server Error'
-            )   
+            )
         
 class SendPrivateMessageView(View):
     def response(self, environ, start_response):
@@ -1480,15 +1468,48 @@ class SearchMessagesView(View):
             )
 class GetGroupMembersView(View):
     def response(self, environ, start_response):
-        group_id = Request(environ).GET.get('group_id')
+        request = Request(environ)
+        user_id = request.cookies.get('user_id')
+        group_id = request.GET.get('group_id')
+        
+        if not user_id:
+            return forbidden_response(start_response)
+
         with get_db_cursor() as cursor:
+            # Проверяем что пользователь состоит в группе
             cursor.execute('''
-                SELECT u.username 
+                SELECT 1 FROM group_members 
+                WHERE group_id = ? AND user_id = ?
+            ''', (group_id, user_id))
+            
+            if not cursor.fetchone():
+                return json_response(
+                    {'error': 'Not a group member'}, 
+                    start_response, 
+                    '403 Forbidden'
+                )
+            
+            # Получаем участников с ролями
+            cursor.execute('''
+                SELECT u.username, gm.role, gm.joined_at
                 FROM group_members gm
                 JOIN users u ON gm.user_id = u.id
                 WHERE gm.group_id = ?
+                ORDER BY 
+                    CASE gm.role 
+                        WHEN 'owner' THEN 1
+                        WHEN 'admin' THEN 2
+                        ELSE 3
+                    END,
+                    gm.joined_at
             ''', (group_id,))
-            members = [row[0] for row in cursor.fetchall()]
+            
+            members = [{
+                'username': row[0],
+                'role': row[1],
+                'joined_at': row[2]
+            } for row in cursor.fetchall()]
+            
             return json_response({'members': members}, start_response)
 
 class GetGeneralMembersView(View):
@@ -1803,3 +1824,157 @@ class CheckPrivateChatsUpdatesView(View):
         except Exception as e:
             logging.error(f"CheckPrivateChatsUpdates error: {str(e)}")
             return json_response({'updated': False}, start_response)
+        
+def check_group_permissions(cursor, user_id, group_id, required_role=None):
+    """Проверяет права пользователя в группе"""
+    cursor.execute('''
+        SELECT role FROM group_members 
+        WHERE group_id = ? AND user_id = ?
+    ''', (group_id, user_id))
+    result = cursor.fetchone()
+    
+    if not result:
+        return False  # Пользователь не в группе
+    
+    user_role = result[0]
+    
+    if required_role == 'owner':
+        return user_role == 'owner'
+    elif required_role == 'admin':
+        return user_role in ('owner', 'admin')
+    
+    return True  # Для обычных участников
+
+class ChangeMemberRoleView(View):
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            user_id = request.cookies.get('user_id')
+            
+            if not user_id:
+                return json_response(
+                    {'error': 'Not authorized'}, 
+                    start_response, 
+                    '401 Unauthorized'
+                )
+
+            content_length = int(environ.get('CONTENT_LENGTH', 0))
+            post_data = json.loads(environ['wsgi.input'].read(content_length))
+            
+            group_id = post_data.get('group_id')
+            username = post_data.get('username')
+            new_role = post_data.get('role')
+
+            if not all([group_id, username, new_role]):
+                return json_response(
+                    {'error': 'Missing parameters'}, 
+                    start_response, 
+                    '400 Bad Request'
+                )
+
+            if new_role not in ['owner', 'admin', 'member']:
+                return json_response(
+                    {'error': 'Invalid role'}, 
+                    start_response, 
+                    '400 Bad Request'
+                )
+
+            with get_db_cursor() as cursor:
+                # Проверяем права текущего пользователя
+                cursor.execute('''
+                    SELECT role FROM group_members 
+                    WHERE group_id = ? AND user_id = ?
+                ''', (group_id, user_id))
+                current_user_role = cursor.fetchone()
+                
+                if not current_user_role or current_user_role[0] not in ['owner', 'admin']:
+                    return json_response(
+                        {'error': 'Недостаточно прав'}, 
+                        start_response, 
+                        '403 Forbidden'
+                    )
+                
+                # Получаем ID целевого пользователя
+                cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
+                target_user = cursor.fetchone()
+                if not target_user:
+                    return json_response(
+                        {'error': 'User not found'}, 
+                        start_response, 
+                        '404 Not Found'
+                    )
+                
+                target_user_id = target_user[0]
+                
+                # Проверяем что не пытаемся изменить себя
+                if target_user_id == user_id and new_role != 'owner':
+                    return json_response(
+                        {'error': 'Нельзя изменить свою роль'}, 
+                        start_response, 
+                        '400 Bad Request'
+                    )
+                
+                # Проверяем текущую роль целевого пользователя
+                cursor.execute('''
+                    SELECT role FROM group_members 
+                    WHERE group_id = ? AND user_id = ?
+                ''', (group_id, target_user_id))
+                target_current_role = cursor.fetchone()
+                
+                if not target_current_role:
+                    return json_response(
+                        {'error': 'User not in group'}, 
+                        start_response, 
+                        '400 BadRequest'
+                    )
+                
+                # Только владелец может назначать владельца
+                if new_role == 'owner' and current_user_role[0] != 'owner':
+                    return json_response(
+                        {'error': 'Только владелец может передавать права'}, 
+                        start_response, 
+                        '403 Forbidden'
+                    )
+                
+                # Обновляем роль
+                cursor.execute('''
+                    UPDATE group_members 
+                    SET role = ?
+                    WHERE group_id = ? AND user_id = ?
+                ''', (new_role, group_id, target_user_id))
+                
+                # Если передаем владение, меняем свою роль на admin
+                if new_role == 'owner':
+                    cursor.execute('''
+                        UPDATE group_members 
+                        SET role = 'admin'
+                        WHERE group_id = ? AND user_id = ?
+                    ''', (group_id, user_id))
+                
+                # Добавляем системное сообщение
+                role_names = {
+                    'owner': 'владельцем',
+                    'admin': 'администратором',
+                    'member': 'участником'
+                }
+                
+                cursor.execute('''
+                    INSERT INTO group_messages 
+                    (group_id, user_id, message_text, timestamp)
+                    VALUES (?, 0, ?, ?)
+                ''', (group_id, f'Пользователь {username} назначен {role_names[new_role]}', int(time.time())))
+                
+                cursor.connection.commit()
+                
+                return json_response({
+                    'status': 'success',
+                    'new_role': new_role
+                }, start_response)
+                
+        except Exception as e:
+            logging.error(f"ChangeMemberRole error: {str(e)}")
+            return json_response(
+                {'error': 'Internal Server Error'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )

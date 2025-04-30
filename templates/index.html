@@ -120,5 +120,34 @@
             </div>
         </div>
     </div>
+    <!-- Шаблон меню изменения роли -->
+    <template id="role-menu-template">
+        <div class="role-menu">
+            <div class="role-menu-header">Изменить роль</div>
+            <div class="role-option" data-role="owner">
+                Владелец
+                <small>Полный контроль</small>
+            </div>
+            <div class="role-option" data-role="admin">
+                Администратор
+                <small>Управление группой/участниками</small>
+            </div>
+            <div class="role-option" data-role="member">
+                Участник
+                <small>Только чтение/написание</small>
+            </div>
+        </div>
+    </template>
+
+    <!-- Шаблон элемента участника группы -->
+    <template id="group-member-template">
+        <div class="member-item">
+            <div class="member-avatar"></div>
+            <span class="member-name"></span>
+            <span class="member-role"></span>
+            <button class="member-actions-btn">⋮</button>
+            <div class="member-status"></div>
+        </div>
+    </template>
 </body>
 </html>

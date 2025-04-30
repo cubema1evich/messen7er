@@ -51,7 +51,7 @@ def initialize_database():
             )
         ''')
 
-        # Таблица ВKожений
+        # Таблица Вложений
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS attachments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,14 +77,11 @@ def initialize_database():
                 group_id INTEGER,
                 user_id INTEGER,
                 role TEXT CHECK(role IN ('owner', 'admin', 'member')),
-                timestamp INTEGER,
-                UNIQUE (group_id, user_id)
+                joined_at INTEGER,
+                UNIQUE (group_id, user_id),
+                FOREIGN KEY(group_id) REFERENCES groups(group_id),
+                FOREIGN KEY(user_id) REFERENCES users(id)
             )
-        ''')
-
-        cursor.execute('''
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_group_members 
-            ON group_members (user_id, timestamp)
         ''')
 
         # Таблица сообщений групп

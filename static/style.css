@@ -789,3 +789,268 @@ body {
 .fade-out {
     opacity: 0;
 }
+
+.member-role {
+    font-size: 0.8em;
+    padding: 2px 6px;
+    border-radius: 12px;
+    margin-left: auto;
+    margin-right: 10px;
+}
+
+.member-role.owner {
+    background-color: #ffd700;
+    color: #000;
+}
+
+.member-role.admin {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.member-role.member {
+    background-color: #f1f1f1;
+    color: #555;
+}
+
+/* Role Modal */
+#role-modal .modal-content {
+    max-width: 400px;
+}
+
+#role-select {
+    padding: 8px;
+    margin-top: 10px;
+    width: 100%;
+}
+
+.modal-buttons {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 20px;
+}
+
+.modal-buttons button {
+    padding: 8px 16px;
+}
+
+.modal-buttons .danger {
+    background-color: #ff4444;
+}
+
+.member-role {
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin-left: 8px;
+}
+
+.member-role.owner {
+    background-color: #ffcc00;
+    color: #000;
+}
+
+.member-role.admin {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.member-role.member {
+    background-color: #2196F3;
+    color: white;
+}
+
+.member-actions {
+    margin-left: auto;
+    position: relative;
+}
+
+.member-menu-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 5px;
+}
+
+.member-menu {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    z-index: 10;
+    display: none;
+}
+
+.member-menu.show {
+    display: block;
+}
+
+.member-menu-item {
+    padding: 8px 16px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.member-menu-item:hover {
+    background: #f5f5f5;
+}
+
+/* Стили для системы ролей */
+.role-menu {
+    position: fixed;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    z-index: 1000;
+    width: 220px;
+    overflow: hidden;
+    font-size: 14px;
+    animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Остальные стили для меню остаются прежними */
+
+.role-menu-header {
+    padding: 10px 15px;
+    background: #f5f5f5;
+    font-weight: bold;
+    border-bottom: 1px solid #eee;
+    color: #333;
+}
+
+.role-option {
+    padding: 10px 15px;
+    cursor: pointer;
+    transition: background 0.2s;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.role-option:last-child {
+    border-bottom: none;
+}
+
+.role-option:hover {
+    background: #f8f8f8;
+}
+
+.role-option.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: none !important;
+}
+
+.role-option small {
+    display: block;
+    font-size: 0.85em;
+    color: #666;
+    margin-top: 3px;
+    font-weight: normal;
+}
+
+.member-actions-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.2em;
+    color: #666;
+    padding: 0 10px;
+    margin-left: auto;
+    transition: color 0.2s;
+}
+
+.member-actions-btn:hover {
+    color: #333;
+}
+
+.member-role {
+    font-size: 0.85em;
+    padding: 3px 8px;
+    border-radius: 12px;
+    margin-left: 10px;
+    font-weight: 500;
+}
+
+.member-role.owner {
+    background-color: #fff9e6;
+    color: #d4a017;
+    border: 1px solid #ffe7a3;
+}
+
+.member-role.admin {
+    background-color: #e6f7ee;
+    color: #1a7d56;
+    border: 1px solid #a3e0c8;
+}
+
+.member-role.member {
+    background-color: #f0f0f0;
+    color: #555;
+    border: 1px solid #ddd;
+}
+
+/* Улучшенные стили для уведомлений */
+.toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 20px;
+    border-radius: 8px;
+    color: white;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 10000;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    opacity: 0;
+    animation: fadeIn 0.3s forwards;
+}
+
+.toast-icon {
+    font-size: 1.2em;
+}
+
+.toast-error {
+    background-color: #ff4444;
+    border-left: 4px solid #cc0000;
+}
+
+.toast-success {
+    background-color: #00C851;
+    border-left: 4px solid #007E33;
+}
+
+.toast-info {
+    background-color: #33b5e5;
+    border-left: 4px solid #0099CC;
+}
+
+.toast-warning {
+    background-color: #ffbb33;
+    border-left: 4px solid #FF8800;
+    color: #333;
+}
+
+.fade-out {
+    animation: fadeOut 0.5s forwards;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+@keyframes fadeOut {
+    from { opacity: 1; transform: translateX(-50%) translateY(0); }
+    to { opacity: 0; transform: translateX(-50%) translateY(20px); }
+}

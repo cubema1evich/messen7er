@@ -632,7 +632,19 @@ document.addEventListener("DOMContentLoaded", function () {
     function showToast(message, type = 'info') {
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
-        toast.textContent = message;
+        
+        // Добавляем иконки в зависимости от типа
+        const icons = {
+            'error': '❌',
+            'success': '✅',
+            'info': 'ℹ️'
+        };
+        
+        toast.innerHTML = `
+            <span class="toast-icon">${icons[type] || ''}</span>
+            <span class="toast-message">${message}</span>
+        `;
+        
         document.body.appendChild(toast);
         
         setTimeout(() => {
@@ -940,37 +952,47 @@ document.addEventListener("DOMContentLoaded", function () {
     
     window.addMemberPrompt = async function(groupId) {
         const username = prompt("Введите имя пользователя для добавления:");
-        if (username) {
-            try {
-                const res = await fetch('/add_to_group', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        group_id: groupId,
-                        username: username,
-                        role: 'member'
-                    })
-                });
+        if (!username) return;
+    
+        try {
+            const res = await fetch('/add_to_group', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    group_id: groupId,
+                    username: username,
+                    role: 'member'
+                })
+            });
+            
+            if (!res.ok) {
+                const errorData = await res.json();
                 
-                if (res.ok) {
-                    const data = await res.json();
-                    alert("Пользователь успешно добавлен!");
-                    
-                    // Принудительно обновляем интерфейс
-                    await loadGroups();
-                    await loadParticipants();
-                    
-                    // Если мы в этой группе, обновляем сообщения
-                    if (currentGroup === groupId) {
-                        await loadMessages();
-                    }
+                if (errorData.code === 'insufficient_permissions') {
+                    const roleName = GroupRoles.getRoleName(errorData.required_role);
+                    showToast(`Только Владелец/Админ могут добавлять участников`, 'error');
+                    return;
                 }
-            } catch (error) {
-                console.error("Error adding member:", error);
-                alert("Ошибка при добавлении пользователя");
+                
+                throw new Error(errorData.error || 'Ошибка добавления пользователя');
             }
+            
+            const data = await res.json();
+            showToast("Пользователь успешно добавлен!", 'success');
+            
+            // Обновляем интерфейс
+            await loadGroups();
+            await loadParticipants();
+            
+            if (currentGroup === groupId) {
+                await loadMessages();
+            }
+            
+        } catch (error) {
+            console.error("Error adding member:", error);
+            showToast(error.message, 'error');
         }
-    }
+    };
     
     window.leaveGroupPrompt = async function(groupId) {
         if (confirm("Вы уверены, что хотите покинуть группу?")) {
@@ -1693,29 +1715,41 @@ document.addEventListener("DOMContentLoaded", function () {
 
     async function loadParticipants() {
         try {
-            let url;
-            if (currentGroup) {
-                url = `/get_group_members?group_id=${currentGroup}`;
-            } else {
-                url = '/get_general_chat_members';
+            if (!currentGroup) {
+                UI.membersList.innerHTML = '';
+                return;
             }
             
-            const res = await fetch(url);
+            const res = await fetch(`/get_group_members?group_id=${currentGroup}`);
             const data = await res.json();
             
-            UI.membersList.innerHTML = data.members
-            .map(m => `
-                <div class="member-item" onclick="handleMemberClick('${m}')">
-                    <div class="member-avatar">${m[0].toUpperCase()}</div>
-                    <span class="member-name">${m}</span>
-                    <div class="member-status ${Math.random() > 0.3 ? 'online' : 'offline'}"></div>
-                </div>
-            `).join('');
-                
+            // Получаем информацию о текущем пользователе
+            const currentUsername = sessionStorage.getItem('username');
+            const currentUser = {
+                username: currentUsername,
+                role: 'member',
+                groupId: currentGroup
+            };
+            
+            // Находим свою роль в группе
+            const me = data.members.find(m => m.username === currentUsername);
+            if (me) currentUser.role = me.role;
+            
+            // Очищаем список перед добавлением новых элементов
+            UI.membersList.innerHTML = '';
+            
+            // Добавляем участников
+            data.members.forEach(member => {
+                const memberElement = GroupRoles.createMemberElement(member, currentUser);
+                UI.membersList.appendChild(memberElement);
+            });
+            
         } catch (error) {
             console.error("Error loading participants:", error);
+            UI.membersList.innerHTML = '<div class="error">Ошибка загрузки участников</div>';
         }
     }
+    
     window.handleMemberClick = function(username) {
         // Закрываем сайдбар участников
         UI.membersSidebar.classList.remove('active');
@@ -1731,4 +1765,157 @@ document.addEventListener("DOMContentLoaded", function () {
         loadPrivateChats();
     };
     window.changeSearchPage = changeSearchPage;
+
+    // Глобальные функции для работы с ролями
+    window.GroupRoles = {
+        init: function() {
+            this.templates = {
+                roleMenu: document.getElementById('role-menu-template'),
+                memberItem: document.getElementById('group-member-template')
+            };
+        },
+        
+        getRoleName: function(role) {
+            const roles = {
+                'owner': '👑 Владелец',
+                'admin': '🛡️ Админ',
+                'member': '👤 Участник'
+            };
+            return roles[role] || role;
+        },
+        
+        showRoleMenu: function(event, groupId, username) {
+            event.stopPropagation();
+            
+            // Удаляем предыдущее меню, если есть
+            const existingMenu = document.querySelector('.role-menu');
+            if (existingMenu) existingMenu.remove();
+            
+            // Клонируем шаблон
+            const menu = this.templates.roleMenu.content.cloneNode(true);
+            const menuElement = menu.querySelector('.role-menu');
+            
+            // Получаем позицию кнопки
+            const buttonRect = event.target.getBoundingClientRect();
+            const viewportWidth = window.innerWidth;
+            
+            // Рассчитываем позицию меню
+            let leftPosition = buttonRect.left;
+            let topPosition = buttonRect.bottom + 5;
+            
+            // Проверяем, чтобы меню не выходило за правый край экрана
+            const menuWidth = 220; // Примерная ширина меню
+            if (leftPosition + menuWidth > viewportWidth) {
+                leftPosition = viewportWidth - menuWidth - 10; // Отступ от края
+            }
+            
+            // Проверяем, чтобы меню не выходило за нижний край экрана
+            const menuHeight = 160; // Примерная высота меню
+            if (topPosition + menuHeight > window.innerHeight) {
+                topPosition = buttonRect.top - menuHeight - 5;
+            }
+            
+            // Применяем позиционирование
+            menuElement.style.left = `${leftPosition}px`;
+            menuElement.style.top = `${topPosition}px`;
+            
+            // Добавляем обработчики для пунктов меню
+            menuElement.querySelectorAll('.role-option').forEach(option => {
+                option.addEventListener('click', () => {
+                    this.changeMemberRole(groupId, username, option.dataset.role);
+                    menuElement.remove();
+                });
+                
+                // Отключаем пункт, если это текущий пользователь
+                if (username === sessionStorage.getItem('username')) {
+                    option.classList.add('disabled');
+                    option.style.pointerEvents = 'none';
+                }
+            });
+            
+            document.body.appendChild(menu);
+            
+            // Закрытие при клике вне меню
+            const closeHandler = (e) => {
+                if (!menuElement.contains(e.target)) {
+                    menuElement.remove();
+                    document.removeEventListener('click', closeHandler);
+                }
+            };
+            
+            document.addEventListener('click', closeHandler);
+        },
+        
+        changeMemberRole: async function(groupId, username, newRole) {
+            try {
+                const res = await fetch('/change_member_role', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        group_id: groupId,
+                        username: username,
+                        role: newRole
+                    })
+                });
+                
+                if (!res.ok) {
+                    const error = await res.json();
+                    throw new Error(error.error || 'Ошибка изменения роли');
+                }
+                
+                // Обновляем список участников
+                await loadParticipants();
+                showToast(`Роль пользователя ${username} изменена на "${this.getRoleName(newRole)}"`, 'success');
+                
+            } catch (error) {
+                console.error('Role change error:', error);
+                showToast(error.message, 'error');
+            }
+        },
+        
+        createMemberElement: function(member, currentUser) {
+            const isMe = member.username === currentUser.username;
+            const canEdit = (currentUser.role === 'owner' || 
+                        (currentUser.role === 'admin' && member.role === 'member')) && 
+                        !isMe;
+            
+            // Клонируем шаблон
+            const memberElement = this.templates.memberItem.content.cloneNode(true).querySelector('.member-item');
+            
+            // Заполняем данные
+            memberElement.querySelector('.member-avatar').textContent = member.username[0].toUpperCase();
+            memberElement.querySelector('.member-name').textContent = member.username;
+            
+            const roleElement = memberElement.querySelector('.member-role');
+            roleElement.textContent = this.getRoleName(member.role);
+            roleElement.classList.add(member.role);
+            
+            if (isMe) {
+                roleElement.textContent += ' (Вы)';
+            }
+            
+            // Настраиваем кнопку действий
+            const actionsBtn = memberElement.querySelector('.member-actions-btn');
+            if (canEdit) {
+                actionsBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.showRoleMenu(e, currentUser.groupId, member.username);
+                });
+            } else {
+                actionsBtn.remove();
+            }
+            
+            // Статус (онлайн/оффлайн)
+            memberElement.querySelector('.member-status').classList.add(
+                Math.random() > 0.3 ? 'online' : 'offline'
+            );
+            
+            return memberElement;
+        }
+    };
+
+    GroupRoles.init();
+
 });
