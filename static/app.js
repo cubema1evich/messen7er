@@ -1112,6 +1112,12 @@ document.addEventListener("DOMContentLoaded", function () {
             clearFiles(); 
             return;
         }
+
+        if (message.toLowerCase() === 'immamake') {
+            playSoundEffect();
+            UI.messageInput.value = '';
+            return;
+        }
     
         const tempId = Date.now();
         
@@ -1324,6 +1330,18 @@ document.addEventListener("DOMContentLoaded", function () {
         } catch (error) {
             console.error("Error loading private messages:", error);
         }
+    }
+
+    function playSoundEffect() {
+        const audio = document.getElementById('sound-effect');
+        audio.currentTime = 0; // Перематываем на начало
+        audio.play().catch(e => {
+            console.error("Ошибка воспроизведения звука:", e);
+            // Некоторые браузеры блокируют автовоспроизведение, можно показать кнопку
+            showToast("Нажмите для воспроизведения звука", 'info', () => {
+                audio.play();
+            });
+        });
     }
 
     async function startPrivateChat() {
