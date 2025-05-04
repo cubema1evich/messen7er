@@ -901,16 +901,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
             });
             
-            if (res.status === 401) {
-                window.location.href = '/login';
-                return;
-            }
-            
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             
             const groups = await res.json();
-            
-            // Сохраняем текущую активную группу
             const activeGroupId = currentGroup;
             
             UI.groupsList.innerHTML = `
@@ -918,11 +911,14 @@ document.addEventListener("DOMContentLoaded", function () {
                      onclick="selectGroup(null, 'Общий чат', this)">
                     Общий чат
                 </div>
-                ${groups.map(group => `
+                ${groups.map(group => {
+                    const isOwnerOrAdmin = group.role === 'owner' || group.role === 'admin';
+                    return `
                     <div class="group-item ${group.id === activeGroupId ? 'active' : ''}" 
                          data-group-id="${group.id}" 
                          onclick="selectGroup(${group.id}, '${group.name}', this)">
                         <span>${group.name}</span>
+                        ${isOwnerOrAdmin ? `
                         <div class="group-menu">
                             <button class="group-actions-btn" onclick="toggleGroupMenu(event, ${group.id})">⋮</button>
                             <div class="group-actions-menu" id="group-menu-${group.id}">
@@ -930,16 +926,14 @@ document.addEventListener("DOMContentLoaded", function () {
                                 <button class="group-action" onclick="leaveGroupPrompt(${group.id})">Покинуть группу</button>
                             </div>
                         </div>
+                        ` : ''}
                     </div>
-                `).join('')}
+                    `;
+                }).join('')}
             `;
         } catch (error) {
             console.error("Error loading groups:", error);
-            if (error.message.includes('401')) {
-                window.location.href = '/login';
-            } else {
-                UI.groupsList.innerHTML = '<div class="error">Ошибка загрузки групп</div>';
-            }
+            UI.groupsList.innerHTML = '<div class="error">Ошибка загрузки групп</div>';
         }
     }
     
@@ -948,6 +942,24 @@ document.addEventListener("DOMContentLoaded", function () {
         event.stopPropagation();
         const menu = document.getElementById(`group-menu-${groupId}`);
         menu.classList.toggle('show');
+        
+        // Добавляем пункт "Изменить название" если его нет
+        if (!menu.querySelector('.rename-group-action')) {
+            const renameItem = document.createElement('button');
+            renameItem.className = 'group-action rename-group-action';
+            renameItem.innerHTML = 'Изменить название';
+            renameItem.onclick = (e) => {
+                e.stopPropagation();
+                const groupElement = e.target.closest('.group-item');
+                const groupName = groupElement.querySelector('span').textContent;
+                renameGroup(groupId, groupName);
+                menu.classList.remove('show');
+            };
+            
+            // Вставляем перед кнопкой "Покинуть группу"
+            const leaveBtn = menu.querySelector('.group-action:last-child');
+            menu.insertBefore(renameItem, leaveBtn);
+        }
     }
     
     window.addMemberPrompt = async function(groupId) {
@@ -1936,4 +1948,40 @@ document.addEventListener("DOMContentLoaded", function () {
 
     GroupRoles.init();
 
+    async function renameGroup(groupId, currentName) {
+        const newName = prompt("Введите новое название группы:", currentName);
+        if (!newName || newName.trim() === currentName) return;
+    
+        try {
+            const res = await fetch('/rename_group', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({
+                    group_id: groupId,
+                    new_name: newName.trim()
+                })
+            });
+    
+            if (!res.ok) {
+                const error = await res.json();
+                throw new Error(error.error || 'Ошибка при изменении названия');
+            }
+    
+            // Обновляем интерфейс
+            if (currentGroup === groupId) {
+                UI.currentGroupName.textContent = newName;
+            }
+            
+            // Обновляем список групп
+            await loadGroups();
+            showToast('Название группы успешно изменено', 'success');
+    
+        } catch (error) {
+            console.error("Rename group error:", error);
+            showToast(error.message, 'error');
+        }
+    }
 });
