@@ -1814,66 +1814,61 @@ document.addEventListener("DOMContentLoaded", function () {
             return roles[role] || role;
         },
         
-        showRoleMenu: function(event, groupId, username) {
-            event.stopPropagation();
+        showRoleMenu: function(e, groupId, username) {
+            e.stopPropagation();
             
-            // Удаляем предыдущее меню, если есть
-            const existingMenu = document.querySelector('.role-menu');
-            if (existingMenu) existingMenu.remove();
+            // Удаляем предыдущее меню ролей
+            const existingRoleMenu = document.querySelector('.role-menu');
+            if (existingRoleMenu) existingRoleMenu.remove();
             
-            // Клонируем шаблон
-            const menu = this.templates.roleMenu.content.cloneNode(true);
-            const menuElement = menu.querySelector('.role-menu');
+            // Создаем меню ролей из шаблона
+            const roleMenu = this.templates.roleMenu.content.cloneNode(true);
+            const roleMenuElement = roleMenu.querySelector('.role-menu');
             
-            // Получаем позицию кнопки
-            const buttonRect = event.target.getBoundingClientRect();
+            // Вставляем имя пользователя в заголовок
+            const usernamePlaceholder = roleMenuElement.querySelector('.username-placeholder');
+            usernamePlaceholder.textContent = username;
+            
+            // Позиционируем меню
+            const buttonRect = e.target.getBoundingClientRect();
             const viewportWidth = window.innerWidth;
             
-            // Рассчитываем позицию меню
+            // Вычисляем позицию
             let leftPosition = buttonRect.left;
-            let topPosition = buttonRect.bottom + 5;
+            let topPosition = buttonRect.bottom + window.scrollY;
             
-            // Проверяем, чтобы меню не выходило за правый край экрана
-            const menuWidth = 220; // Примерная ширина меню
-            if (leftPosition + menuWidth > viewportWidth) {
-                leftPosition = viewportWidth - menuWidth - 10; // Отступ от края
-            }
-            
-            // Проверяем, чтобы меню не выходило за нижний край экрана
-            const menuHeight = 160; // Примерная высота меню
-            if (topPosition + menuHeight > window.innerHeight) {
-                topPosition = buttonRect.top - menuHeight - 5;
+            // Проверяем, чтобы не выйти за правый край экрана
+            if (leftPosition + 240 > viewportWidth) {
+                leftPosition = viewportWidth - 240 - 10;
             }
             
             // Применяем позиционирование
-            menuElement.style.left = `${leftPosition}px`;
-            menuElement.style.top = `${topPosition}px`;
+            roleMenuElement.style.position = 'absolute';
+            roleMenuElement.style.top = `${topPosition}px`;
+            roleMenuElement.style.left = `${leftPosition}px`;
+            roleMenuElement.style.zIndex = '1200';
             
-            // Добавляем обработчики для пунктов меню
-            menuElement.querySelectorAll('.role-option').forEach(option => {
+            document.body.appendChild(roleMenuElement);
+            
+            // Обработчики для пунктов меню
+            roleMenuElement.querySelectorAll('.role-option').forEach(option => {
                 option.addEventListener('click', () => {
                     this.changeMemberRole(groupId, username, option.dataset.role);
-                    menuElement.remove();
+                    roleMenuElement.remove();
                 });
-                
-                // Отключаем пункт, если это текущий пользователь
-                if (username === sessionStorage.getItem('username')) {
-                    option.classList.add('disabled');
-                    option.style.pointerEvents = 'none';
-                }
             });
-            
-            document.body.appendChild(menu);
             
             // Закрытие при клике вне меню
             const closeHandler = (e) => {
-                if (!menuElement.contains(e.target)) {
-                    menuElement.remove();
+                if (!roleMenuElement.contains(e.target)) {
+                    roleMenuElement.remove();
                     document.removeEventListener('click', closeHandler);
                 }
             };
             
-            document.addEventListener('click', closeHandler);
+            setTimeout(() => {
+                document.addEventListener('click', closeHandler);
+            }, 10);
         },
         
         changeMemberRole: async function(groupId, username, newRole) {
@@ -1910,6 +1905,9 @@ document.addEventListener("DOMContentLoaded", function () {
             const canEdit = (currentUser.role === 'owner' || 
                         (currentUser.role === 'admin' && member.role === 'member')) && 
                         !isMe;
+            const canRemove = (currentUser.role === 'owner' || 
+                          (currentUser.role === 'admin' && member.role === 'member')) && 
+                          !isMe;
             
             // Клонируем шаблон
             const memberElement = this.templates.memberItem.content.cloneNode(true).querySelector('.member-item');
@@ -1926,15 +1924,15 @@ document.addEventListener("DOMContentLoaded", function () {
                 roleElement.textContent += ' (Вы)';
             }
             
-            // Настраиваем кнопку действий
+            // Настраиваем кнопку действий (показываем только если есть какие-то действия)
             const actionsBtn = memberElement.querySelector('.member-actions-btn');
-            if (canEdit) {
+            if (canEdit || canRemove) {
                 actionsBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    this.showRoleMenu(e, currentUser.groupId, member.username);
+                    this.showMemberMenu(e, currentUser.groupId, member.username, member.role, canEdit, canRemove);
                 });
             } else {
-                actionsBtn.remove();
+                actionsBtn.style.display = 'none';
             }
             
             // Статус (онлайн/оффлайн)
@@ -1943,7 +1941,77 @@ document.addEventListener("DOMContentLoaded", function () {
             );
             
             return memberElement;
-        }
+        },
+        
+        showMemberMenu: function(e, groupId, username, role, canEdit, canRemove) {
+            e.stopPropagation();
+            
+            // Удаляем предыдущее меню, если есть
+            const existingMenu = document.querySelector('.member-menu');
+            if (existingMenu) existingMenu.remove();
+            
+            // Создаем меню
+            const menu = document.createElement('div');
+            menu.className = 'member-menu';
+            
+            // Позиционируем меню рядом с кнопкой
+            const buttonRect = e.target.getBoundingClientRect();
+            const viewportWidth = window.innerWidth;
+            
+            // Рассчитываем позицию меню
+            let leftPosition = buttonRect.left;
+            let topPosition = buttonRect.bottom + 5;
+            
+            // Проверяем, чтобы меню не выходило за правый край экрана
+            const menuWidth = 220;
+            if (leftPosition + menuWidth > viewportWidth) {
+                leftPosition = viewportWidth - menuWidth - 10;
+            }
+            
+            menu.style.left = `${leftPosition}px`;
+            menu.style.top = `${topPosition}px`;
+            
+            // Добавляем пункт изменения роли, если есть права
+            if (canEdit) {
+                const editRoleItem = document.createElement('div');
+                editRoleItem.className = 'menu-item';
+                editRoleItem.innerHTML = '<span class="menu-icon">🛡️</span> Изменить роль';
+                editRoleItem.addEventListener('click', () => {
+                    this.showRoleMenu(e, groupId, username);
+                    menu.remove();
+                });
+                menu.appendChild(editRoleItem);
+            }
+            
+            // Добавляем пункт исключения, если есть права
+            if (canRemove) {
+                const removeItem = document.createElement('div');
+                removeItem.className = 'menu-item remove-item';
+                removeItem.innerHTML = '<span class="menu-icon">🚪</span> Исключить';
+                removeItem.addEventListener('click', () => {
+                    removeMemberFromGroup(groupId, username);
+                    menu.remove();
+                });
+                menu.appendChild(removeItem);
+            }
+            
+            // Если нет ни одного пункта меню, не показываем его
+            if (menu.children.length === 0) {
+                return;
+            }
+            
+            document.body.appendChild(menu);
+            
+            // Закрытие при клике вне меню
+            const closeHandler = (e) => {
+                if (!menu.contains(e.target) && !e.target.classList.contains('member-actions-btn')) {
+                    menu.remove();
+                    document.removeEventListener('click', closeHandler);
+                }
+            };
+            
+            document.addEventListener('click', closeHandler);
+        },
     };
 
     GroupRoles.init();
@@ -1981,6 +2049,48 @@ document.addEventListener("DOMContentLoaded", function () {
     
         } catch (error) {
             console.error("Rename group error:", error);
+            showToast(error.message, 'error');
+        }
+    }
+
+    async function removeMemberFromGroup(groupId, username) {
+        if (!confirm(`Вы уверены, что хотите исключить ${username} из группы?`)) {
+            return;
+        }
+    
+        try {
+            const res = await fetch('/remove_from_group', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({
+                    group_id: groupId,
+                    username: username
+                })
+            });
+    
+            if (!res.ok) {
+                const error = await res.json();
+                throw new Error(error.error || 'Ошибка при исключении');
+            }
+    
+            // Обновляем список участников
+            await loadParticipants();
+            showToast(`Пользователь ${username} исключен из группы`, 'success');
+    
+            // Если исключен текущий пользователь, переключаем на общий чат
+            const currentUser = sessionStorage.getItem('username');
+            if (username === currentUser) {
+                currentGroup = null;
+                sessionStorage.removeItem('currentChat');
+                UI.currentGroupName.textContent = 'Общий чат';
+                loadMessages();
+            }
+    
+        } catch (error) {
+            console.error("Remove member error:", error);
             showToast(error.message, 'error');
         }
     }

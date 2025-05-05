@@ -2060,3 +2060,119 @@ class RenameGroupView(View):
                 start_response, 
                 '500 Internal Server Error'
             )
+        
+class RemoveFromGroupView(View):
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            user_id = request.cookies.get('user_id')
+            
+            if not user_id:
+                return json_response(
+                    {'error': 'Not authorized'}, 
+                    start_response, 
+                    '401 Unauthorized'
+                )
+
+            content_length = int(environ.get('CONTENT_LENGTH', 0))
+            post_data = json.loads(environ['wsgi.input'].read(content_length))
+            
+            group_id = post_data.get('group_id')
+            username = post_data.get('username')
+
+            if not all([group_id, username]):
+                return json_response(
+                    {'error': 'Missing parameters'}, 
+                    start_response, 
+                    '400 Bad Request'
+                )
+
+            with get_db_cursor() as cursor:
+                # Проверяем права текущего пользователя
+                cursor.execute('''
+                    SELECT role FROM group_members 
+                    WHERE group_id = ? AND user_id = ?
+                ''', (group_id, user_id))
+                current_user_role = cursor.fetchone()
+                
+                if not current_user_role:
+                    return json_response(
+                        {'error': 'Вы не состоите в этой группе'}, 
+                        start_response, 
+                        '403 Forbidden'
+                    )
+                
+                current_user_role = current_user_role[0]
+                
+                # Получаем данные целевого пользователя
+                cursor.execute('''
+                    SELECT id, role FROM users 
+                    JOIN group_members ON users.id = group_members.user_id
+                    WHERE username = ? AND group_id = ?
+                ''', (username, group_id))
+                target_user = cursor.fetchone()
+                
+                if not target_user:
+                    return json_response(
+                        {'error': 'Пользователь не найден в группе'}, 
+                        start_response, 
+                        '404 Not Found'
+                    )
+                
+                target_user_id, target_user_role = target_user
+                
+                # Проверка прав:
+                # 1. Владелец может исключить всех
+                # 2. Админ может исключить только участников
+                # 3. Участники не могут исключать
+                if current_user_role == 'owner':
+                    pass  # Владелец может исключить всех
+                elif current_user_role == 'admin':
+                    if target_user_role != 'member':
+                        return json_response(
+                            {'error': 'Вы можете исключать только участников'}, 
+                            start_response, 
+                            '403 Forbidden'
+                        )
+                else:
+                    return json_response(
+                        {'error': 'Недостаточно прав для исключения'}, 
+                        start_response, 
+                        '403 Forbidden'
+                    )
+                
+                # Нельзя исключить себя
+                if target_user_id == user_id:
+                    return json_response(
+                        {'error': 'Нельзя исключить самого себя'}, 
+                        start_response, 
+                        '400 Bad Request'
+                    )
+                
+                # Удаляем пользователя из группы
+                cursor.execute('''
+                    DELETE FROM group_members 
+                    WHERE group_id = ? AND user_id = ?
+                ''', (group_id, target_user_id))
+                
+                # Добавляем системное сообщение
+                cursor.execute('''
+                    INSERT INTO group_messages 
+                    (group_id, user_id, message_text, timestamp)
+                    VALUES (?, 0, ?, ?)
+                ''', (group_id, f'Пользователь {username} исключен из группы', int(time.time())))
+                
+                cursor.connection.commit()
+                
+                return json_response({
+                    'status': 'success',
+                    'message': 'Пользователь успешно исключен'
+                }, start_response)
+                
+        except Exception as e:
+            logging.error(f"RemoveFromGroup error: {str(e)}")
+            return json_response(
+                {'error': 'Internal Server Error'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )

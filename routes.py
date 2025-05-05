@@ -29,6 +29,7 @@ routes = {
     '/send_system_message': SendSystemMessageView,
     '/change_member_role': ChangeMemberRoleView,
     '/rename_group': RenameGroupView,
+    '/remove_from_group': RemoveFromGroupView,
     r'^/edit_message/(\d+)$': EditMessageView,
     r'^/delete_message/(\d+)$': DeleteMessageView,
     r'^/404$': NotFoundView,
