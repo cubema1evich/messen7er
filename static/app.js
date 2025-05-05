@@ -770,7 +770,8 @@ document.addEventListener("DOMContentLoaded", function () {
             const lastCheck = parseInt(sessionStorage.getItem('groupsLastCheck') || '0');
         
             // Проверяем обновления групп с передачей последнего времени проверки
-            const groupsRes = await fetch(`/check_groups_updates?last_check=${lastCheck}`);
+            const groupsRes = await fetch(`/check_groups_updates?last_check=${lastCheck}&force=true`);
+
             if (groupsRes.ok) {
                 const data = await groupsRes.json();
                 if (data.updated) {
@@ -892,9 +893,11 @@ document.addEventListener("DOMContentLoaded", function () {
             }
             
             if (res.ok) {
-                loadGroups();
-                alert("Группа создана успешно!");
+                await loadGroups();
+                showToast("Группа создана успешно!", 'success');
+                debouncedUpdate(); // Запускаем проверку обновлений
             }
+
         } catch (error) {
             console.error("Error creating group:", error);
             alert("Ошибка при создании группы");
@@ -1760,18 +1763,27 @@ document.addEventListener("DOMContentLoaded", function () {
             
             const currentUsername = sessionStorage.getItem('username');
             
+            const currentUser = data.members.find(m => m.username === currentUsername);
+            if (!currentUser) return;
+            
             UI.membersList.innerHTML = '';
             
             data.members.forEach(member => {
+                const isMe = member.username === currentUsername;
+                const isOnline = isMe; // Текущий пользователь всегда онлайн
+                
+                const canManage = (currentUser.role === 'owner' || 
+                                 (currentUser.role === 'admin' && member.role === 'member')) && 
+                                 !isMe;
+                
                 const memberElement = document.createElement('div');
                 memberElement.className = 'member-item';
-                
-                const isOnline = member.username === currentUsername; // Текущий пользователь всегда онлайн
                 
                 memberElement.innerHTML = `
                     <div class="member-avatar">${member.username[0].toUpperCase()}</div>
                     <span class="member-name">${member.username}</span>
                     <span class="member-role ${member.role}">${GroupRoles.getRoleName(member.role)}</span>
+                    ${canManage ? `<button class="member-actions-btn" onclick="event.stopPropagation(); GroupRoles.showMemberMenu(event, ${currentGroup}, '${member.username}', '${member.role}', true, true)">⋮</button>` : ''}
                     <div class="member-status ${isOnline ? 'online' : 'offline'}"></div>
                 `;
                 
@@ -1895,9 +1907,10 @@ document.addEventListener("DOMContentLoaded", function () {
                     })
                 });
                 
-                if (!res.ok) {
-                    const error = await res.json();
-                    throw new Error(error.error || 'Ошибка изменения роли');
+                if (res.ok) {
+                    await loadParticipants();
+                    showToast(`Роль пользователя ${username} изменена`, 'success');
+                    debouncedUpdate(); // Запускаем проверку обновлений
                 }
                 
                 // Обновляем список участников
@@ -1998,7 +2011,8 @@ document.addEventListener("DOMContentLoaded", function () {
                 const removeItem = document.createElement('div');
                 removeItem.className = 'menu-item remove-item';
                 removeItem.innerHTML = '<span class="menu-icon">🚪</span> Исключить';
-                removeItem.addEventListener('click', () => {
+                removeItem.addEventListener('click', (e) => {
+                    e.stopPropagation();
                     removeMemberFromGroup(groupId, username);
                     menu.remove();
                 });
@@ -2063,7 +2077,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
-    async function removeMemberFromGroup(groupId, username) {
+    window.removeMemberFromGroup = async function(groupId, username) {
         if (!confirm(`Вы уверены, что хотите исключить ${username} из группы?`)) {
             return;
         }
@@ -2104,4 +2118,11 @@ document.addEventListener("DOMContentLoaded", function () {
             showToast(error.message, 'error');
         }
     }
+
+    const testBtn = document.createElement('button');
+    testBtn.textContent = 'Тест: исключить пользователя';
+    testBtn.onclick = () => removeMemberFromGroup(currentGroup, 'cubemalevich');
+    document.body.appendChild(testBtn);
+
 });
+
