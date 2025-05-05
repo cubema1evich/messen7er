@@ -89,9 +89,6 @@ document.addEventListener("DOMContentLoaded", function () {
         membersSidebar: document.querySelector(".sidebar-right"),
         membersClose: document.getElementById('members-close'),
         membersList: document.getElementById('members-list')
-        //newMemberInput: document.getElementById("new-member-input"),
-        //addMemberBtn: document.getElementById("add-member-btn"),
-        //leaveGroupBtn: document.getElementById("leave-group-btn"),
     };
     
     // Восстановление состояния чата
@@ -185,13 +182,16 @@ document.addEventListener("DOMContentLoaded", function () {
             // Всегда проверяем обновления интерфейса
             checkInterfaceUpdates();
             
+            // if (UI.membersSidebar.classList.contains('active')) {
+            //     loadParticipants();
+            // }
+            
             // Для всех случаев проверяем приватные чаты
             loadPrivateChats();
             
             // Загружаем соответствующие сообщения
             if (currentGroup) {
                 loadMessages();
-                loadParticipants();
             } else if (currentPrivateChat) {
                 loadPrivateMessages();
             } else {
@@ -206,7 +206,16 @@ document.addEventListener("DOMContentLoaded", function () {
             console.error('Interval error:', e);
         }
         
-        setTimeout(checkForUpdates, 2000);
+        debouncedUpdate();;
+    }
+    
+    let updateTimeout;
+    
+    function debouncedUpdate() {
+        clearTimeout(updateTimeout);
+        updateTimeout = setTimeout(() => {
+            checkForUpdates();
+        }, 1000);
     }
 
     checkForUpdates();
@@ -977,29 +986,25 @@ document.addEventListener("DOMContentLoaded", function () {
                 })
             });
             
-            if (!res.ok) {
-                const errorData = await res.json();
+            if (res.ok) {
+                showToast("Пользователь успешно добавлен!", 'success');
                 
-                if (errorData.code === 'insufficient_permissions') {
-                    const roleName = GroupRoles.getRoleName(errorData.required_role);
-                    showToast(`Только Владелец/Админ могут добавлять участников`, 'error');
-                    return;
+                await loadGroups();
+                
+                if (currentGroup === groupId) {
+                    await loadParticipants();
                 }
                 
-                throw new Error(errorData.error || 'Ошибка добавления пользователя');
+                const groupElement = document.querySelector(`.group-item[data-group-id="${groupId}"]`);
+                if (groupElement) {
+                    groupElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    groupElement.classList.add('highlight');
+                    setTimeout(() => groupElement.classList.remove('highlight'), 2000);
+                }
+            } else {
+                const error = await res.json();
+                throw new Error(error.error || 'Ошибка добавления пользователя');
             }
-            
-            const data = await res.json();
-            showToast("Пользователь успешно добавлен!", 'success');
-            
-            // Обновляем интерфейс
-            await loadGroups();
-            await loadParticipants();
-            
-            if (currentGroup === groupId) {
-                await loadMessages();
-            }
-            
         } catch (error) {
             console.error("Error adding member:", error);
             showToast(error.message, 'error');
@@ -1753,24 +1758,29 @@ document.addEventListener("DOMContentLoaded", function () {
             const res = await fetch(`/get_group_members?group_id=${currentGroup}`);
             const data = await res.json();
             
-            // Получаем информацию о текущем пользователе
             const currentUsername = sessionStorage.getItem('username');
-            const currentUser = {
-                username: currentUsername,
-                role: 'member',
-                groupId: currentGroup
-            };
             
-            // Находим свою роль в группе
-            const me = data.members.find(m => m.username === currentUsername);
-            if (me) currentUser.role = me.role;
-            
-            // Очищаем список перед добавлением новых элементов
             UI.membersList.innerHTML = '';
             
-            // Добавляем участников
             data.members.forEach(member => {
-                const memberElement = GroupRoles.createMemberElement(member, currentUser);
+                const memberElement = document.createElement('div');
+                memberElement.className = 'member-item';
+                
+                const isOnline = member.username === currentUsername; // Текущий пользователь всегда онлайн
+                
+                memberElement.innerHTML = `
+                    <div class="member-avatar">${member.username[0].toUpperCase()}</div>
+                    <span class="member-name">${member.username}</span>
+                    <span class="member-role ${member.role}">${GroupRoles.getRoleName(member.role)}</span>
+                    <div class="member-status ${isOnline ? 'online' : 'offline'}"></div>
+                `;
+                
+                memberElement.addEventListener('click', () => {
+                    if (member.username !== currentUsername) {
+                        selectPrivateChat(member.username);
+                    }
+                });
+                
                 UI.membersList.appendChild(memberElement);
             });
             
