@@ -918,61 +918,68 @@ document.addEventListener("DOMContentLoaded", function () {
             const groups = await res.json();
             const activeGroupId = currentGroup;
             
-            UI.groupsList.innerHTML = `
-                <div class="group-item ${!currentGroup ? 'active' : ''}" 
-                     onclick="selectGroup(null, 'Общий чат', this)">
-                    Общий чат
-                </div>
-                ${groups.map(group => {
-                    const isOwnerOrAdmin = group.role === 'owner' || group.role === 'admin';
-                    return `
-                    <div class="group-item ${group.id === activeGroupId ? 'active' : ''}" 
-                         data-group-id="${group.id}" 
-                         onclick="selectGroup(${group.id}, '${group.name}', this)">
-                        <span>${group.name}</span>
-                        ${isOwnerOrAdmin ? `
-                        <div class="group-menu">
-                            <button class="group-actions-btn" onclick="toggleGroupMenu(event, ${group.id})">⋮</button>
-                            <div class="group-actions-menu" id="group-menu-${group.id}">
-                                <button class="group-action" onclick="addMemberPrompt(${group.id})">Добавить участника</button>
-                                <button class="group-action" onclick="leaveGroupPrompt(${group.id})">Покинуть группу</button>
-                            </div>
-                        </div>
-                        ` : ''}
+                UI.groupsList.innerHTML = `
+        <div class="group-item ${!currentGroup ? 'active' : ''}" 
+            onclick="selectGroup(null, 'Общий чат', this)">
+            Общий чат
+        </div>
+        ${groups.map(group => {
+            const isOwnerOrAdmin = group.role === 'owner' || group.role === 'admin';
+            return `
+            <div class="group-item ${group.id === activeGroupId ? 'active' : ''}" 
+                data-group-id="${group.id}" 
+                onclick="selectGroup(${group.id}, '${group.name}', this)">
+                <span>${group.name}</span>
+                ${isOwnerOrAdmin ? `
+                <div class="group-menu">
+                    <button class="group-actions-btn" onclick="event.stopPropagation(); toggleGroupMenu(event, ${group.id})">⋮</button>
+                    <div class="group-actions-menu" id="group-menu-${group.id}">
+                        <button class="group-action" onclick="addMemberPrompt(${group.id})">➕ Добавить участника</button>
+                        <button class="group-action" onclick="renameGroupPrompt(${group.id}, '${group.name}')">✏️ Изменить название</button>
+                        <button class="group-action" onclick="leaveGroupPrompt(${group.id})">🚪 Покинуть группу</button>
                     </div>
-                    `;
-                }).join('')}
+                </div>
+                ` : ''}
+            </div>
             `;
+        }).join('')}
+    `;
         } catch (error) {
             console.error("Error loading groups:", error);
             UI.groupsList.innerHTML = '<div class="error">Ошибка загрузки групп</div>';
         }
     }
     
+    window.renameGroupPrompt = function(groupId, currentName) {
+        const newName = prompt("Введите новое название группы:", currentName);
+        if(newName && newName.trim() !== currentName) {
+            renameGroup(groupId, newName.trim());
+        }
+    };
+
     // Новые функции управления группами
     window.toggleGroupMenu = function(event, groupId) {
         event.stopPropagation();
         const menu = document.getElementById(`group-menu-${groupId}`);
+        
+        // Закрываем все другие открытые меню
+        document.querySelectorAll('.group-actions-menu').forEach(m => {
+            if (m !== menu) m.classList.remove('show');
+        });
+        
+        // Переключаем текущее меню
         menu.classList.toggle('show');
         
-        // Добавляем пункт "Изменить название" если его нет
-        if (!menu.querySelector('.rename-group-action')) {
-            const renameItem = document.createElement('button');
-            renameItem.className = 'group-action rename-group-action';
-            renameItem.innerHTML = 'Изменить название';
-            renameItem.onclick = (e) => {
-                e.stopPropagation();
-                const groupElement = e.target.closest('.group-item');
-                const groupName = groupElement.querySelector('span').textContent;
-                renameGroup(groupId, groupName);
+        // Обработчик закрытия при клике вне меню
+        const closeHandler = (e) => {
+            if (!menu.contains(e.target) && !event.target.closest('.group-actions-btn')) {
                 menu.classList.remove('show');
-            };
-            
-            // Вставляем перед кнопкой "Покинуть группу"
-            const leaveBtn = menu.querySelector('.group-action:last-child');
-            menu.insertBefore(renameItem, leaveBtn);
-        }
-    }
+                document.removeEventListener('click', closeHandler);
+            }
+        };
+        
+        document.addEventListener('click', closeHandler);
+    };
     
     window.addMemberPrompt = async function(groupId) {
         const username = prompt("Введите имя пользователя для добавления:");
@@ -1249,6 +1256,22 @@ document.addEventListener("DOMContentLoaded", function () {
         this.style.height = (this.scrollHeight) + 'px';
     });
 
+    UI.messageInput.addEventListener('focus', () => {
+        if (window.innerWidth < 768) {
+            setTimeout(() => {
+                UI.chatBox.scrollTo({
+                    top: UI.chatBox.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }, 300);
+        }
+    });
+    
+    UI.messageForm.addEventListener('submit', () => {
+        if (window.innerWidth < 768) {
+            UI.messageInput.blur();
+        }
+    });
     // Инициализация высоты при загрузке страницы
     window.addEventListener('load', function () {
         UI.messageInput.style.height = 'auto';
