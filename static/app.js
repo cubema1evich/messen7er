@@ -2119,10 +2119,5 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
-    const testBtn = document.createElement('button');
-    testBtn.textContent = 'Тест: исключить пользователя';
-    testBtn.onclick = () => removeMemberFromGroup(currentGroup, 'cubemalevich');
-    document.body.appendChild(testBtn);
-
 });
 
