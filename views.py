@@ -1004,11 +1004,16 @@ class CheckGroupAccessView(View):
                     WHERE group_id = ? AND user_id = ?
                 ''', (group_id, user_id))
                 
-                if cursor.fetchone():
-                    return json_response({'has_access': True}, start_response)
-                else:
-                    return json_response({'has_access': False}, start_response)
-                    
+                has_access = cursor.fetchone() is not None
+                
+                cursor.execute('SELECT 1 FROM groups WHERE group_id = ?', (group_id,))
+                group_exists = cursor.fetchone() is not None
+                
+                return json_response({
+                    'has_access': has_access,
+                    'group_exists': group_exists
+                }, start_response)
+                
         except Exception as e:
             logging.error(f"CheckGroupAccess error: {str(e)}")
             return json_response(
@@ -2088,7 +2093,6 @@ class RemoveFromGroupView(View):
                 )
 
             with get_db_cursor() as cursor:
-                # Проверяем права текущего пользователя
                 cursor.execute('''
                     SELECT role FROM group_members 
                     WHERE group_id = ? AND user_id = ?
@@ -2104,7 +2108,6 @@ class RemoveFromGroupView(View):
                 
                 current_user_role = current_user_role[0]
                 
-                # Получаем данные целевого пользователя
                 cursor.execute('''
                     SELECT id, role FROM users 
                     JOIN group_members ON users.id = group_members.user_id
@@ -2121,12 +2124,8 @@ class RemoveFromGroupView(View):
                 
                 target_user_id, target_user_role = target_user
                 
-                # Проверка прав:
-                # 1. Владелец может исключить всех
-                # 2. Админ может исключить только участников
-                # 3. Участники не могут исключать
                 if current_user_role == 'owner':
-                    pass  # Владелец может исключить всех
+                    pass
                 elif current_user_role == 'admin':
                     if target_user_role != 'member':
                         return json_response(
@@ -2141,7 +2140,6 @@ class RemoveFromGroupView(View):
                         '403 Forbidden'
                     )
                 
-                # Нельзя исключить себя
                 if target_user_id == user_id:
                     return json_response(
                         {'error': 'Нельзя исключить самого себя'}, 
@@ -2149,23 +2147,29 @@ class RemoveFromGroupView(View):
                         '400 Bad Request'
                     )
                 
-                # Удаляем пользователя из группы
                 cursor.execute('''
                     DELETE FROM group_members 
                     WHERE group_id = ? AND user_id = ?
                 ''', (group_id, target_user_id))
                 
-                # Добавляем системное сообщение
                 cursor.execute('''
                     INSERT INTO group_messages 
                     (group_id, user_id, message_text, timestamp)
                     VALUES (?, 0, ?, ?)
                 ''', (group_id, f'Пользователь {username} исключен из группы', int(time.time())))
                 
+                cursor.execute('''
+                    DELETE FROM group_messages 
+                    WHERE group_id = ? AND user_id = ? AND timestamp > ?
+                ''', (group_id, target_user_id, int(time.time())))
+                
                 cursor.connection.commit()
                 
                 return json_response({
                     'status': 'success',
+                    'removed_user': username,
+                    'group_id': group_id,
+                    'is_current_user': (target_user_id == int(user_id)),
                     'message': 'Пользователь успешно исключен'
                 }, start_response)
                 
@@ -2176,3 +2180,10 @@ class RemoveFromGroupView(View):
                 start_response, 
                 '500 Internal Server Error'
             )
+        
+class GetGeneralMembersView(View):
+    def response(self, environ, start_response):
+        with get_db_cursor() as cursor:
+            cursor.execute('SELECT username FROM users')
+            members = [row[0] for row in cursor.fetchall()]
+            return json_response({'members': members}, start_response)
