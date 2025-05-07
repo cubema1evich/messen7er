@@ -175,38 +175,40 @@ document.addEventListener("DOMContentLoaded", function () {
         isTabActive = false;
     });
 
-    function checkForUpdates() {
+    async function checkForUpdates() {
         if (!isTabActive) return;
         
         try {
-            // Всегда проверяем обновления интерфейса
-            checkInterfaceUpdates();
+            // Проверяем обновления только активных компонентов
+            const updates = await Promise.all([
+                currentGroup ? checkGroupUpdates() : Promise.resolve(false),
+                currentPrivateChat ? checkPrivateChatUpdates() : Promise.resolve(false),
+                checkInterfaceUpdates()
+            ]);
             
-            // if (UI.membersSidebar.classList.contains('active')) {
-            //     loadParticipants();
-            // }
-            
-            // Для всех случаев проверяем приватные чаты
-            loadPrivateChats();
-            
-            // Загружаем соответствующие сообщения
-            if (currentGroup) {
-                loadMessages();
-            } else if (currentPrivateChat) {
-                loadPrivateMessages();
-            } else {
-                loadMessages();
+            // Если были обновления в текущем чате - загружаем сообщения
+            if (updates.some(Boolean)) {
+                if (currentGroup) {
+                    await loadMessages();
+                } else if (currentPrivateChat) {
+                    await loadPrivateMessages();
+                }
             }
             
-            // Проверяем измененные/удаленные сообщения
-            checkDeletedMessages();
-            checkEditedMessages();
+            // Всегда проверяем участников, если сайдбар открыт
+            if (UI.membersSidebar.classList.contains('active')) {
+                await loadParticipants();
+            }
             
         } catch (e) {
-            console.error('Interval error:', e);
+            console.error('Update error:', e);
         }
-        
-        debouncedUpdate();;
+    }
+    
+    async function checkGroupUpdates() {
+        const res = await fetch(`/check_group_updates?group_id=${currentGroup}`);
+        const data = await res.json();
+        return data.updated;
     }
     
     let updateTimeout;
@@ -781,7 +783,6 @@ document.addEventListener("DOMContentLoaded", function () {
         
             // Проверяем обновления групп с передачей последнего времени проверки
             const groupsRes = await fetch(`/check_groups_updates?last_check=${lastCheck}&force=true`);
-
             if (groupsRes.ok) {
                 const data = await groupsRes.json();
                 if (data.updated) {
@@ -914,21 +915,49 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
-    async function loadGroups() {
-        try {
-            const res = await fetch('/get_groups', {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
-                    'Cache-Control': 'no-cache'
-                }
-            });
+    let lastGroupsHash = '';
+
+async function loadGroups() {
+    try {
+        const res = await fetch('/get_groups', {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Cache-Control': 'no-cache'
+            }
+        });
+        
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        
+        const groups = await res.json();
+        const newHash = JSON.stringify(groups);
+        
+        // Обновляем только если данные изменились
+        if (newHash !== lastGroupsHash) {
+            lastGroupsHash = newHash;
             
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            // Сохраняем открытое меню
+            const openMenu = document.querySelector('.group-actions-menu.show');
+            const openGroupId = openMenu ? openMenu.id.replace('group-menu-', '') : null;
             
-            const groups = await res.json();
-            const activeGroupId = currentGroup;
+            // Отрисовываем группы
+            renderGroups(groups);
             
-                UI.groupsList.innerHTML = `
+            // Восстанавливаем открытое меню
+            if (openGroupId) {
+                const menu = document.getElementById(`group-menu-${openGroupId}`);
+                if (menu) menu.classList.add('show');
+            }
+        }
+    } catch (error) {
+        console.error("Error loading groups:", error);
+        UI.groupsList.innerHTML = '<div class="error">Ошибка загрузки групп</div>';
+    }
+}
+
+function renderGroups(groups) {
+    const activeGroupId = currentGroup;
+    
+    UI.groupsList.innerHTML = `
         <div class="group-item ${!currentGroup ? 'active' : ''}" 
             onclick="selectGroup(null, 'Общий чат', this)">
             Общий чат
@@ -954,11 +983,7 @@ document.addEventListener("DOMContentLoaded", function () {
             `;
         }).join('')}
     `;
-        } catch (error) {
-            console.error("Error loading groups:", error);
-            UI.groupsList.innerHTML = '<div class="error">Ошибка загрузки групп</div>';
-        }
-    }
+}
     
     window.renameGroupPrompt = function(groupId, currentName) {
         const newName = prompt("Введите новое название группы:", currentName);
@@ -1009,7 +1034,8 @@ document.addEventListener("DOMContentLoaded", function () {
             if (res.ok) {
                 showToast("Пользователь успешно добавлен!", 'success');
                 
-                await loadGroups();
+                //Принудельно обеовляем инфтерфейс
+                await checkInterfaceUpdates();
                 
                 if (currentGroup === groupId) {
                     await loadParticipants();
