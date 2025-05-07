@@ -287,6 +287,18 @@ document.addEventListener("DOMContentLoaded", function () {
             let params = `timestamp=${lastTimestamp}`;
             
             if (currentGroup) {
+                const accessRes = await fetch(`/check_group_access?group_id=${currentGroup}`);
+                const accessData = await accessRes.json();
+                
+                if (!accessData.has_access) {
+                    currentGroup = null;
+                    sessionStorage.removeItem('currentChat');
+                    UI.currentGroupName.textContent = 'Общий чат';
+                    UI.chatBox.innerHTML = '';
+                    lastTimestamp = 0;
+                    return loadMessages();
+                }
+                
                 url = `/get_group_messages?group_id=${currentGroup}&${params}`;
             } else if (currentPrivateChat) {
                 url = `/get_private_messages?user=${encodeURIComponent(currentPrivateChat)}&${params}`;
@@ -306,7 +318,6 @@ document.addEventListener("DOMContentLoaded", function () {
             }
             
             if (res.status === 403) {
-                // Если доступ запрещен, переключаем на общий чат
                 currentGroup = null;
                 sessionStorage.removeItem('currentChat');
                 UI.currentGroupName.textContent = 'Общий чат';
@@ -337,7 +348,6 @@ document.addEventListener("DOMContentLoaded", function () {
             console.error("Error loading messages:", error);
             
             if (error.message.includes('403') && currentGroup) {
-                // Если доступ к группе запрещён, переключаем на общий чат
                 currentGroup = null;
                 sessionStorage.removeItem('currentChat');
                 UI.currentGroupName.textContent = 'Общий чат';
@@ -1777,15 +1787,42 @@ document.addEventListener("DOMContentLoaded", function () {
     async function loadParticipants() {
         try {
             if (!currentGroup) {
+                // Для общего чата
+                const res = await fetch('/get_general_members');
+                const data = await res.json();
+                
                 UI.membersList.innerHTML = '';
+                const currentUsername = sessionStorage.getItem('username');
+                
+                data.members.forEach(member => {
+                    const isMe = member === currentUsername;
+                    
+                    const memberElement = document.createElement('div');
+                    memberElement.className = 'member-item';
+                    
+                    memberElement.innerHTML = `
+                        <div class="member-avatar">${member[0].toUpperCase()}</div>
+                        <span class="member-name">${member}</span>
+                        <span class="member-role">👤 Участник</span>
+                        <div class="member-status ${isMe ? 'online' : 'offline'}"></div>
+                    `;
+                    
+                    memberElement.addEventListener('click', () => {
+                        if (member !== currentUsername) {
+                            selectPrivateChat(member);
+                        }
+                    });
+                    
+                    UI.membersList.appendChild(memberElement);
+                });
                 return;
             }
             
+            // Остальной код для групп остается без изменений
             const res = await fetch(`/get_group_members?group_id=${currentGroup}`);
             const data = await res.json();
             
             const currentUsername = sessionStorage.getItem('username');
-            
             const currentUser = data.members.find(m => m.username === currentUsername);
             if (!currentUser) return;
             
@@ -2118,22 +2155,30 @@ document.addEventListener("DOMContentLoaded", function () {
                 })
             });
     
+            const data = await res.json();
+            
             if (!res.ok) {
-                const error = await res.json();
-                throw new Error(error.error || 'Ошибка при исключении');
+                throw new Error(data.error || 'Ошибка при исключении');
             }
     
-            // Обновляем список участников
+            // Обновляем интерфейс
             await loadParticipants();
             showToast(`Пользователь ${username} исключен из группы`, 'success');
     
             // Если исключен текущий пользователь, переключаем на общий чат
-            const currentUser = sessionStorage.getItem('username');
-            if (username === currentUser) {
+            if (data.is_current_user) {
                 currentGroup = null;
                 sessionStorage.removeItem('currentChat');
                 UI.currentGroupName.textContent = 'Общий чат';
+                UI.chatBox.innerHTML = '';
+                lastTimestamp = 0;
                 loadMessages();
+                
+                // Принудительно обновляем список групп
+                await loadGroups();
+            } else if (currentGroup === groupId) {
+                // Если мы в этой группе, просто обновляем участников
+                await loadParticipants();
             }
     
         } catch (error) {
