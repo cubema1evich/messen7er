@@ -2384,5 +2384,103 @@ async function renameGroup(groupId, newName) {
         }
     }
 
+    function initMemberActions() {
+        document.querySelectorAll('.member-actions-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const memberItem = e.target.closest('.member-item');
+                const currentRole = memberItem.querySelector('.member-role').dataset.role;
+                const menu = createMemberMenu(memberItem.dataset.userId, currentRole);
+                
+                // Позиционирование меню
+                const rect = btn.getBoundingClientRect();
+                menu.style.top = `${rect.bottom + window.scrollY + 5}px`;
+                menu.style.left = `${rect.left - 150}px`;
+                
+                document.body.appendChild(menu);
+                setupMenuCloseHandler(menu);
+            });
+        });
+    }
+
+    function createMemberMenu(userId, currentRole) {
+        const template = document.getElementById('member-menu-template');
+        const menu = template.content.cloneNode(true).querySelector('.member-menu');
+        
+        menu.dataset.userId = userId;
+        menu.dataset.currentRole = currentRole;
+    
+        menu.querySelector('[data-action="change-role"]').addEventListener('click', () => {
+            showRoleSelectionModal(userId);
+        });
+    
+        menu.querySelector('[data-action="remove-member"]').addEventListener('click', () => {
+            if(confirm(`Вы уверены, что хотите исключить пользователя?`)) {
+                removeMemberFromGroup(currentGroup, userId);
+            }
+        });
+    
+        return menu;
+    }
+
+    function showRoleSelectionModal(userId) {
+        const modal = document.getElementById('role-selection-modal');
+        const options = modal.querySelectorAll('.role-option');
+        
+        const closeModal = () => modal.classList.remove('show');
+        
+        options.forEach(option => {
+            option.addEventListener('click', async () => {
+                const newRole = option.dataset.role;
+                try {
+                    await changeMemberRole(currentGroup, userId, newRole);
+                    closeModal();
+                    loadParticipants();
+                } catch (error) {
+                    showErrorModal(error.message);
+                }
+            });
+        });
+    
+        modal.classList.add('show');
+        setupModalCloseHandlers(modal, closeModal);
+    }
+
+    function setupMenuCloseHandler(menu) {
+        const closeHandler = (e) => {
+            if (!menu.contains(e.target)) {
+                menu.remove();
+                document.removeEventListener('click', closeHandler);
+            }
+        };
+        document.addEventListener('click', closeHandler);
+    }
+
+    // Обновляем рендеринг участников
+function renderMemberItem(member) {
+    const item = document.createElement('div');
+    item.className = 'member-item';
+    item.dataset.userId = member.id;
+    
+    item.innerHTML = `
+        <!-- ... существующая разметка ... -->
+        <button class="member-actions-btn">⋮</button>
+    `;
+
+    if (canManageMember(currentUserRole, member.role)) {
+        item.querySelector('.member-actions-btn').style.display = 'block';
+    }
+
+    return item;
+}
+
+function canManageMember(currentUserRole, targetRole) {
+    const roleHierarchy = ['owner', 'admin', 'member'];
+    return roleHierarchy.indexOf(currentUserRole) < roleHierarchy.indexOf(targetRole);
+}
+
+// После загрузки участников вызываем
+initMemberActions();
+
 });
 

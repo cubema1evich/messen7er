@@ -201,5 +201,34 @@
             </div>
         </div>
     </div>
+    <template id="member-menu-template">
+        <div class="member-menu">
+            <div class="menu-item" data-action="change-role">
+                <span class="menu-icon">🛡️</span>
+                Изменить роль
+            </div>
+            <div class="menu-item danger" data-action="remove-member">
+                <span class="menu-icon">🚪</span>
+                Исключить
+            </div>
+        </div>
+    </template>
+    
+    <div id="role-selection-modal" class="confirm-modal">
+        <div class="confirm-content minimal-modal">
+            <span class="confirm-close minimal-close">&times;</span>
+            <h3 class="minimal-title">Выбор роли</h3>
+            <div class="role-options">
+                <div class="role-option" data-role="admin">
+                    <span class="role-icon">🛡️</span>
+                    Администратор
+                </div>
+                <div class="role-option" data-role="member">
+                    <span class="role-icon">👤</span>
+                    Участник
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
