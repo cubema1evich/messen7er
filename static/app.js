@@ -1058,12 +1058,71 @@ function renderGroups(groups) {
     `;
 }
     
-    window.renameGroupPrompt = function(groupId, currentName) {
-        const newName = prompt("Введите новое название группы:", currentName);
-        if(newName && newName.trim() !== currentName) {
-            renameGroup(groupId, newName.trim());
-        }
-    };
+window.renameGroupPrompt = function(groupId, currentName) {
+    const modal = document.getElementById('rename-group-modal');
+    const input = document.getElementById('rename-group-input');
+    const closeBtn = modal.querySelector('.minimal-close');
+    const cancelBtn = document.getElementById('rename-group-cancel');
+    const confirmBtn = document.getElementById('rename-group-confirm');
+
+    return new Promise((resolve) => {
+        const cleanup = () => {
+            modal.classList.remove('show');
+            input.value = '';
+            document.removeEventListener('click', outsideClick);
+            confirmBtn.removeEventListener('click', confirmHandler);
+            cancelBtn.removeEventListener('click', cancelHandler);
+            closeBtn.removeEventListener('click', cancelHandler);
+            document.onkeydown = null;
+        };
+
+        const confirmHandler = async () => {
+            const newName = input.value.trim();
+            if(!newName) {
+                showErrorModal('Введите название группы');
+                return;
+            }
+            
+            if(newName === currentName) {
+                cleanup();
+                return;
+            }
+            
+            try {
+                await renameGroup(groupId, newName);
+                cleanup();
+            } catch(error) {
+                showErrorModal(error.message);
+            }
+        };
+
+        const cancelHandler = () => {
+            cleanup();
+            resolve(false);
+        };
+
+        const handleKeyPress = (e) => {
+            if(e.key === 'Enter') confirmHandler();
+        };
+
+        const outsideClick = (e) => {
+            if(e.target === modal) cancelHandler();
+        };
+
+        // Инициализация
+        modal.classList.add('show');
+        input.value = currentName;
+        input.focus();
+        input.select();
+        
+        document.addEventListener('click', outsideClick);
+        confirmBtn.addEventListener('click', confirmHandler);
+        cancelBtn.addEventListener('click', cancelHandler);
+        closeBtn.addEventListener('click', cancelHandler);
+        input.addEventListener('keypress', handleKeyPress);
+    });
+};
+
 
     // Новые функции управления группами
     window.toggleGroupMenu = function(event, groupId) {
@@ -1090,45 +1149,82 @@ function renderGroups(groups) {
     };
     
     window.addMemberPrompt = async function(groupId) {
-        const username = prompt("Введите имя пользователя для добавления:");
-        if (!username) return;
+        const modal = document.getElementById('add-member-modal');
+        const input = document.getElementById('member-name-input');
+        const closeBtn = modal.querySelector('.confirm-close');
+        const cancelBtn = document.getElementById('add-member-cancel');
+        const confirmBtn = document.getElementById('add-member-confirm');
     
-        try {
-            const res = await fetch('/add_to_group', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    group_id: groupId,
-                    username: username,
-                    role: 'member'
-                })
-            });
-            
-            if (res.ok) {
-                showToast("Пользователь успешно добавлен!", 'success');
+        return new Promise((resolve) => {
+            const cleanup = () => {
+                modal.classList.remove('show');
+                input.value = '';
+                document.removeEventListener('click', outsideClick);
+                confirmBtn.removeEventListener('click', confirmHandler);
+                cancelBtn.removeEventListener('click', cancelHandler);
+                closeBtn.removeEventListener('click', cancelHandler);
+            };
+    
+            const confirmHandler = async () => {
+                const username = input.value.trim();
+                if(!username) {
+                    showErrorModal('Введите имя пользователя');
+                    return;
+                }
                 
-                //Принудельно обеовляем инфтерфейс
+                cleanup();
+                await proceedWithAddingMember(groupId, username);
+            };
+    
+            const cancelHandler = () => {
+                cleanup();
+                resolve(false);
+            };
+    
+            const outsideClick = (e) => {
+                if(e.target === modal) cancelHandler();
+            };
+    
+            modal.classList.add('show');
+            input.focus();
+            
+            confirmBtn.addEventListener('click', confirmHandler);
+            cancelBtn.addEventListener('click', cancelHandler);
+            closeBtn.addEventListener('click', cancelHandler);
+            modal.addEventListener('click', outsideClick);
+        });
+        async function proceedWithAddingMember(groupId, username) {
+            try {
+                const res = await fetch('/add_to_group', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        group_id: groupId,
+                        username: username,
+                        role: 'member'
+                    })
+                });
+    
+                const data = await res.json();
+                
+                if(!res.ok) {
+                    showErrorModal(data.error || 'Ошибка добавления');
+                    return;
+                }
+    
+                showToast("Пользователь добавлен!", 'success');
                 await checkInterfaceUpdates();
                 
-                if (currentGroup === groupId) {
+                if(currentGroup === groupId) {
                     await loadParticipants();
                 }
-                
-                const groupElement = document.querySelector(`.group-item[data-group-id="${groupId}"]`);
-                if (groupElement) {
-                    groupElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                    groupElement.classList.add('highlight');
-                    setTimeout(() => groupElement.classList.remove('highlight'), 2000);
-                }
-            } else {
-                const error = await res.json();
-                throw new Error(error.error || 'Ошибка добавления пользователя');
+    
+            } catch(error) {
+                console.error("Error adding member:", error);
+                showErrorModal('Ошибка соединения');
             }
-        } catch (error) {
-            console.error("Error adding member:", error);
-            showToast(error.message, 'error');
         }
-    };
+    }
     
     window.leaveGroupPrompt = async function(groupId) {
         if (confirm("Вы уверены, что хотите покинуть группу?")) {
@@ -2199,42 +2295,44 @@ function renderGroups(groups) {
 
     GroupRoles.init();
 
-    async function renameGroup(groupId, currentName) {
-        const newName = prompt("Введите новое название группы:", currentName);
-        if (!newName || newName.trim() === currentName) return;
-    
-        try {
-            const res = await fetch('/rename_group', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                },
-                body: JSON.stringify({
-                    group_id: groupId,
-                    new_name: newName.trim()
-                })
-            });
-    
-            if (!res.ok) {
-                const error = await res.json();
-                throw new Error(error.error || 'Ошибка при изменении названия');
-            }
-    
-            // Обновляем интерфейс
-            if (currentGroup === groupId) {
-                UI.currentGroupName.textContent = newName;
-            }
-            
-            // Обновляем список групп
-            await loadGroups();
-            showToast('Название группы успешно изменено', 'success');
-    
-        } catch (error) {
-            console.error("Rename group error:", error);
-            showToast(error.message, 'error');
+    // Обновляем функцию renameGroup
+async function renameGroup(groupId, newName) {
+    try {
+        const res = await fetch('/rename_group', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({
+                group_id: groupId,
+                new_name: newName
+            })
+        });
+
+        const data = await res.json();
+        
+        if(!res.ok) {
+            throw new Error(data.error || 'Ошибка при изменении названия');
         }
+
+        // Обновляем интерфейс
+        if(currentGroup === groupId) {
+            UI.currentGroupName.textContent = newName;
+            sessionStorage.setItem('currentChat', JSON.stringify({
+                ...JSON.parse(sessionStorage.getItem('currentChat')),
+                name: newName
+            }));
+        }
+        
+        await loadGroups();
+        showToast('Название успешно изменено', 'success');
+
+    } catch(error) {
+        console.error("Rename group error:", error);
+        throw error;
     }
+}
 
     window.removeMemberFromGroup = async function(groupId, username) {
         if (!confirm(`Вы уверены, что хотите исключить ${username} из группы?`)) {
