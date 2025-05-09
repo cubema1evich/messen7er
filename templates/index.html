@@ -151,5 +151,29 @@
     <audio id="sound-effect" preload="auto">
         <source src="static/Sound/ima-make-u-pop-like-that.mp3" type="audio/mpeg">
     </audio>
+    <div id="create-group-modal" class="confirm-modal">
+        <div class="confirm-content">
+            <span class="confirm-close">&times;</span>
+            <h3>Создание новой группы</h3>
+            <div class="input-container">
+                <input type="text" id="group-name-input" 
+                       placeholder="Введите название группы">
+            </div>
+            <div class="confirm-buttons">
+                <button id="create-group-cancel" class="confirm-btn cancel-btn">Отмена</button>
+                <button id="create-group-confirm" class="confirm-btn delete-btn">Создать</button>
+            </div>
+        </div>
+    </div>
+    <div id="error-modal" class="confirm-modal">
+        <div class="confirm-content" style="max-width: 350px;">
+            <span class="confirm-close">&times;</span>
+            <h3>Ошибка</h3>
+            <p id="error-message"></p>
+            <div class="confirm-buttons">
+                <button id="error-ok" class="confirm-btn delete-btn">OK</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

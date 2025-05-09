@@ -206,9 +206,20 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     
     async function checkGroupUpdates() {
-        const res = await fetch(`/check_group_updates?group_id=${currentGroup}`);
-        const data = await res.json();
-        return data.updated;
+        try {
+            const res = await fetch(`/check_group_updates?group_id=${currentGroup}`);
+            
+            // Проверяем статус и content-type
+            if (!res.ok || !res.headers.get('content-type')?.includes('application/json')) {
+                return false;
+            }
+            
+            const data = await res.json();
+            return data.updated;
+        } catch (e) {
+            console.error('Group update check error:', e);
+            return false;
+        }
     }
     
     let updateTimeout;
@@ -887,35 +898,97 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     async function createGroup() {
-        const groupName = prompt("Введите название группы:");
-        if (!groupName) return;
+        const modal = document.getElementById('create-group-modal');
+        const closeBtn = modal.querySelector('.confirm-close');
+        const cancelBtn = document.getElementById('create-group-cancel');
+        const confirmBtn = document.getElementById('create-group-confirm');
+        const input = document.getElementById('group-name-input');
     
-        try {
-            const res = await fetch('/create_group', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ name: groupName })
-            });
+        return new Promise((resolve) => {
+            const cleanup = () => {
+                modal.classList.remove('show');
+                input.value = '';
+                document.removeEventListener('click', outsideClick);
+                confirmBtn.removeEventListener('click', confirmHandler);
+                cancelBtn.removeEventListener('click', cancelHandler);
+                closeBtn.removeEventListener('click', cancelHandler);
+            };
+    
+            const confirmHandler = () => {
+                const groupName = input.value.trim();
+                if(!groupName) return;
+                cleanup();
+                proceedWithGroupCreation(groupName);
+            };
+    
+            const cancelHandler = () => {
+                cleanup();
+                resolve(false);
+            };
+    
+            const outsideClick = (e) => {
+                if(e.target === modal) cancelHandler();
+            };
+    
+            modal.classList.add('show');
+            input.focus();
             
-            if (res.status === 400) {
-                const error = await res.json();
-                alert(error.error);
-                return;
-            }
-            
-            if (res.ok) {
+            confirmBtn.addEventListener('click', confirmHandler);
+            cancelBtn.addEventListener('click', cancelHandler);
+            closeBtn.addEventListener('click', cancelHandler);
+            modal.addEventListener('click', outsideClick);
+        });
+    
+        async function proceedWithGroupCreation(groupName) {
+            try {
+                const res = await fetch('/create_group', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ name: groupName })
+                });
+        
+                const data = await res.json();
+                
+                if(!res.ok) {
+                    showErrorModal(data.error || 'Ошибка при создании группы');
+                    return;
+                }
+        
                 await loadGroups();
                 showToast("Группа создана успешно!", 'success');
-                debouncedUpdate(); // Запускаем проверку обновлений
+                debouncedUpdate();
+        
+            } catch(error) {
+                console.error("Error creating group:", error);
+                showErrorModal('Ошибка соединения с сервером');
             }
-
-        } catch (error) {
-            console.error("Error creating group:", error);
-            alert("Ошибка при создании группы");
         }
     }
 
     let lastGroupsHash = '';
+
+    function showErrorModal(message) {
+        const modal = document.getElementById('error-modal');
+        const closeBtn = modal.querySelector('.confirm-close');
+        const okBtn = document.getElementById('error-ok');
+        const messageEl = document.getElementById('error-message');
+    
+        messageEl.textContent = message;
+        modal.classList.add('show');
+    
+        const closeHandler = () => {
+            modal.classList.remove('show');
+            document.removeEventListener('click', outsideClick);
+        };
+    
+        const outsideClick = (e) => {
+            if(e.target === modal) closeHandler();
+        };
+    
+        closeBtn.addEventListener('click', closeHandler);
+        okBtn.addEventListener('click', closeHandler);
+        document.addEventListener('click', outsideClick);
+    }
 
 async function loadGroups() {
     try {
