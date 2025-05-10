@@ -852,6 +852,7 @@ class AddToGroupView(View):
                         'status': 'success',
                         'group_id': group_id,
                         'group_name': group[0],
+                        'requires_ui_update': True  
                     }, start_response)
                     
                 except sqlite3.IntegrityError:
@@ -2187,3 +2188,52 @@ class GetGeneralMembersView(View):
             cursor.execute('SELECT username FROM users')
             members = [row[0] for row in cursor.fetchall()]
             return json_response({'members': members}, start_response)
+        
+class CheckGroupsUpdatesView(View):
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            user_id = request.cookies.get('user_id')
+            if not user_id:
+                return json_response({'updated': False}, start_response)
+
+            last_check = int(request.GET.get('last_check', 0))
+            force_update = request.GET.get('force', 'false').lower() == 'true'
+            
+            with get_db_cursor() as cursor:
+                #Проверка нового пользователя
+                cursor.execute('''
+                    SELECT 1 FROM group_members 
+                    WHERE user_id = ? AND joined_at > ?
+                    LIMIT 1
+                ''', (user_id, last_check))
+                new_groups = cursor.fetchone() is not None
+                
+                #Проверка изменений
+                cursor.execute('''
+                    SELECT 1 FROM groups g
+                    JOIN group_members gm ON g.group_id = gm.group_id
+                    WHERE gm.user_id = ? AND g.updated_at > ?
+                    LIMIT 1
+                ''', (user_id, last_check))
+                groups_updated = cursor.fetchone() is not None
+                
+                # Проверка новых сообщений
+                cursor.execute('''
+                    SELECT 1 FROM group_messages
+                    WHERE group_id IN (
+                        SELECT group_id FROM group_members WHERE user_id = ?
+                    ) AND timestamp > ?
+                    LIMIT 1
+                ''', (user_id, last_check))
+                messages_updated = cursor.fetchone() is not None
+                
+                updated = new_groups or groups_updated or messages_updated or force_update
+                return json_response({
+                    'updated': updated,
+                    'new_timestamp': int(time.time())
+                }, start_response)
+                
+        except Exception as e:
+            logging.error(f"CheckGroupsUpdates error: {str(e)}")
+            return json_response({'updated': False}, start_response)

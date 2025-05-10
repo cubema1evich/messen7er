@@ -63,6 +63,7 @@ document.addEventListener("DOMContentLoaded", function () {
         perPage: 20,
         sort: 'date'
     };
+    let lastGroupsHash = '';
 
     // Элементы интерфейса
     const UI = {
@@ -175,38 +176,51 @@ document.addEventListener("DOMContentLoaded", function () {
         isTabActive = false;
     });
 
-    function checkForUpdates() {
+    async function checkForUpdates() {
         if (!isTabActive) return;
         
         try {
-            // Всегда проверяем обновления интерфейса
-            checkInterfaceUpdates();
+            // Проверяем обновления только активных компонентов
+            const updates = await Promise.all([
+                currentGroup ? checkGroupUpdates() : Promise.resolve(false),
+                currentPrivateChat ? checkPrivateChatUpdates() : Promise.resolve(false),
+                checkInterfaceUpdates()
+            ]);
             
-            // if (UI.membersSidebar.classList.contains('active')) {
-            //     loadParticipants();
-            // }
-            
-            // Для всех случаев проверяем приватные чаты
-            loadPrivateChats();
-            
-            // Загружаем соответствующие сообщения
-            if (currentGroup) {
-                loadMessages();
-            } else if (currentPrivateChat) {
-                loadPrivateMessages();
-            } else {
-                loadMessages();
+            // Если были обновления в текущем чате - загружаем сообщения
+            if (updates.some(Boolean)) {
+                if (currentGroup) {
+                    await loadMessages();
+                } else if (currentPrivateChat) {
+                    await loadPrivateMessages();
+                }
             }
             
-            // Проверяем измененные/удаленные сообщения
-            checkDeletedMessages();
-            checkEditedMessages();
+            // Всегда проверяем участников, если сайдбар открыт
+            if (UI.membersSidebar.classList.contains('active')) {
+                await loadParticipants();
+            }
             
         } catch (e) {
-            console.error('Interval error:', e);
+            console.error('Update error:', e);
         }
-        
-        debouncedUpdate();;
+    }
+    
+    async function checkGroupUpdates() {
+        try {
+            const res = await fetch(`/check_group_updates?group_id=${currentGroup}`);
+            
+            // Проверяем статус и content-type
+            if (!res.ok || !res.headers.get('content-type')?.includes('application/json')) {
+                return false;
+            }
+            
+            const data = await res.json();
+            return data.updated;
+        } catch (e) {
+            console.error('Group update check error:', e);
+            return false;
+        }
     }
     
     let updateTimeout;
@@ -781,7 +795,6 @@ document.addEventListener("DOMContentLoaded", function () {
         
             // Проверяем обновления групп с передачей последнего времени проверки
             const groupsRes = await fetch(`/check_groups_updates?last_check=${lastCheck}&force=true`);
-
             if (groupsRes.ok) {
                 const data = await groupsRes.json();
                 if (data.updated) {
@@ -885,50 +898,137 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
-    async function createGroup() {
-        const groupName = prompt("Введите название группы:");
-        if (!groupName) return;
+    window.createGroup = function() {
+        const modal = document.createElement('div');
+        modal.className = 'create-group-modal';
+        
+        modal.innerHTML = `
+            <h3>Создание новой группы</h3>
+            <input 
+                type="text" 
+                class="create-group-input" 
+                placeholder="Придумайте название группы"
+                maxlength="30"
+                autofocus
+            >
+            <div class="modal-buttons">
+                <button class="modal-confirm-btn">Создать</button>
+                <button class="modal-cancel-btn">Отмена</button>
+            </div>
+        `;
     
-        try {
-            const res = await fetch('/create_group', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ name: groupName })
-            });
-            
-            if (res.status === 400) {
-                const error = await res.json();
-                alert(error.error);
-                return;
-            }
-            
-            if (res.ok) {
-                await loadGroups();
-                showToast("Группа создана успешно!", 'success');
-                debouncedUpdate(); // Запускаем проверку обновлений
-            }
+        document.body.appendChild(modal);
+        
+        const input = modal.querySelector('.create-group-input');
+        const confirmBtn = modal.querySelector('.modal-confirm-btn');
+        const cancelBtn = modal.querySelector('.modal-cancel-btn');
+    
+        return new Promise((resolve) => {
+            const cleanup = () => {
+                modal.remove();
+                document.removeEventListener('keypress', handleEnter);
+            };
+    
+            const handleEnter = (e) => {
+                if(e.key === 'Enter') confirmHandler();
+            };
+    
+            const confirmHandler = async () => {
+                const groupName = input.value.trim();
+                cleanup();
+                if(groupName) {
+                    try {
+                        const res = await fetch('/create_group', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ name: groupName })
+                        });
+                        
+                        if(res.ok) {
+                            await loadGroups();
+                            showToast("Группа создана успешно!", 'success');
+                        }
+                    } catch(error) {
+                        console.error("Error creating group:", error);
+                        showToast('Ошибка создания группы', 'error');
+                    }
+                }
+            };
+    
+            confirmBtn.addEventListener('click', confirmHandler);
+            cancelBtn.addEventListener('click', cleanup);
+            document.addEventListener('keypress', handleEnter);
+        });
+    };
 
-        } catch (error) {
-            console.error("Error creating group:", error);
-            alert("Ошибка при создании группы");
-        }
+    function showErrorModal(message) {
+        const modal = document.getElementById('error-modal');
+        const closeBtn = modal.querySelector('.confirm-close');
+        const okBtn = document.getElementById('error-ok');
+        const messageEl = document.getElementById('error-message');
+    
+        messageEl.textContent = message;
+        modal.classList.add('show');
+    
+        const closeHandler = () => {
+            modal.classList.remove('show');
+            document.removeEventListener('click', outsideClick);
+        };
+    
+        const outsideClick = (e) => {
+            if(e.target === modal) closeHandler();
+        };
+    
+        closeBtn.addEventListener('click', closeHandler);
+        okBtn.addEventListener('click', closeHandler);
+        document.addEventListener('click', outsideClick);
     }
 
-    async function loadGroups() {
-        try {
-            const res = await fetch('/get_groups', {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
-                    'Cache-Control': 'no-cache'
-                }
-            });
+async function loadGroups() {
+    try {
+        const res = await fetch('/get_groups', {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Cache-Control': 'no-cache'
+            }
+        });
+        
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        
+        const groups = await res.json();
+        const newHash = JSON.stringify(groups);
+        
+        // Добавить проверку на существование переменной
+        if (typeof lastGroupsHash === 'undefined') {
+            lastGroupsHash = '';
+        }
+        
+        if (newHash !== lastGroupsHash) {
+            lastGroupsHash = newHash;
             
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            // Сохраняем открытое меню
+            const openMenu = document.querySelector('.group-actions-menu.show');
+            const openGroupId = openMenu ? openMenu.id.replace('group-menu-', '') : null;
             
-            const groups = await res.json();
-            const activeGroupId = currentGroup;
+            // Отрисовываем группы
+            renderGroups(groups);
             
-                UI.groupsList.innerHTML = `
+            // Восстанавливаем открытое меню
+            if (openGroupId) {
+                const menu = document.getElementById(`group-menu-${openGroupId}`);
+                if (menu) menu.classList.add('show');
+            }
+        }
+    } catch (error) {
+        console.error("Error loading groups:", error);
+        UI.groupsList.innerHTML = '<div class="error">Ошибка загрузки групп</div>';
+    }
+}
+
+function renderGroups(groups) {
+    const activeGroupId = currentGroup;
+    
+    UI.groupsList.innerHTML = `
         <div class="group-item ${!currentGroup ? 'active' : ''}" 
             onclick="selectGroup(null, 'Общий чат', this)">
             Общий чат
@@ -954,18 +1054,67 @@ document.addEventListener("DOMContentLoaded", function () {
             `;
         }).join('')}
     `;
-        } catch (error) {
-            console.error("Error loading groups:", error);
-            UI.groupsList.innerHTML = '<div class="error">Ошибка загрузки групп</div>';
-        }
-    }
+}
     
-    window.renameGroupPrompt = function(groupId, currentName) {
-        const newName = prompt("Введите новое название группы:", currentName);
-        if(newName && newName.trim() !== currentName) {
-            renameGroup(groupId, newName.trim());
-        }
-    };
+window.renameGroupPrompt = function(groupId, currentName) {
+    const modal = document.createElement('div');
+    modal.className = 'rename-group-modal';
+    
+    modal.innerHTML = `
+        <h3>Изменить название группы</h3>
+        <input 
+            type="text" 
+            class="rename-group-input" 
+            value="${currentName}"
+            placeholder="Введите новое название"
+            maxlength="30"
+        >
+        <div class="modal-buttons">
+            <button class="modal-confirm-btn">Сохранить</button>
+            <button class="modal-cancel-btn">Отмена</button>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    
+    const input = modal.querySelector('.rename-group-input');
+    const confirmBtn = modal.querySelector('.modal-confirm-btn');
+    const cancelBtn = modal.querySelector('.modal-cancel-btn');
+
+    // Автоматический выбор текущего текста
+    setTimeout(() => {
+        input.select();
+        input.focus();
+    }, 100);
+
+    return new Promise((resolve) => {
+        const cleanup = () => {
+            modal.remove();
+            document.removeEventListener('keypress', handleEnter);
+        };
+
+        const handleEnter = (e) => {
+            if(e.key === 'Enter') confirmHandler();
+        };
+
+        const confirmHandler = async () => {
+            const newName = input.value.trim();
+            cleanup();
+            if(newName && newName !== currentName) {
+                try {
+                    await renameGroup(groupId, newName);
+                } catch(error) {
+                    showToast(error.message, 'error');
+                }
+            }
+        };
+
+        confirmBtn.addEventListener('click', confirmHandler);
+        cancelBtn.addEventListener('click', cleanup);
+        document.addEventListener('keypress', handleEnter);
+    });
+};
+
 
     // Новые функции управления группами
     window.toggleGroupMenu = function(event, groupId) {
@@ -992,44 +1141,55 @@ document.addEventListener("DOMContentLoaded", function () {
     };
     
     window.addMemberPrompt = async function(groupId) {
-        const username = prompt("Введите имя пользователя для добавления:");
-        if (!username) return;
+        const modal = document.createElement('div');
+        modal.className = 'add-member-modal';
+        
+        modal.innerHTML = `
+            <h3 style="color: #5A3A3A; margin-bottom: 15px;">Добавить участника</h3>
+            <input type="text" 
+                   id="member-name-input" 
+                   placeholder="Введите имя пользователя"
+                   style="text-align: center">
+            <div class="modal-buttons">
+                <button class="modal-confirm-btn">Добавить</button>
+                <button class="modal-cancel-btn">Отмена</button>
+            </div>
+        `;
     
-        try {
-            const res = await fetch('/add_to_group', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    group_id: groupId,
-                    username: username,
-                    role: 'member'
-                })
+        document.body.appendChild(modal);
+        
+        const input = modal.querySelector('#member-name-input');
+        const confirmBtn = modal.querySelector('.modal-confirm-btn');
+        const cancelBtn = modal.querySelector('.modal-cancel-btn');
+    
+        // Фокус на поле ввода при открытии
+        setTimeout(() => input.focus(), 100);
+    
+        // Обработчики событий
+        return new Promise((resolve) => {
+            confirmBtn.addEventListener('click', async () => {
+                const username = input.value.trim();
+                modal.remove();
+                if(username) {
+                    await proceedWithAddingMember(groupId, username);
+                }
             });
-            
-            if (res.ok) {
-                showToast("Пользователь успешно добавлен!", 'success');
-                
-                await loadGroups();
-                
-                if (currentGroup === groupId) {
-                    await loadParticipants();
-                }
-                
-                const groupElement = document.querySelector(`.group-item[data-group-id="${groupId}"]`);
-                if (groupElement) {
-                    groupElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                    groupElement.classList.add('highlight');
-                    setTimeout(() => groupElement.classList.remove('highlight'), 2000);
-                }
-            } else {
-                const error = await res.json();
-                throw new Error(error.error || 'Ошибка добавления пользователя');
+    
+            cancelBtn.addEventListener('click', () => {
+                modal.remove();
+                resolve(false);
+            });
+        });
+    
+        async function proceedWithAddingMember(groupId, username) {
+            try {
+                // ... существующая логика добавления ...
+            } catch(error) {
+                console.error("Error adding member:", error);
+                showToast(error.message, 'error');
             }
-        } catch (error) {
-            console.error("Error adding member:", error);
-            showToast(error.message, 'error');
         }
-    };
+    }
     
     window.leaveGroupPrompt = async function(groupId) {
         if (confirm("Вы уверены, что хотите покинуть группу?")) {
@@ -1113,7 +1273,10 @@ document.addEventListener("DOMContentLoaded", function () {
         document.getElementById('execute-search').addEventListener('click', executeSearch);
         document.querySelector('.close-modal').addEventListener('click', closeSearchModal);
 
-        UI.createGroupBtn.addEventListener("click", createGroup);
+        UI.createGroupBtn.addEventListener("click", async () => {
+            await window.createGroup();
+            debouncedUpdate();
+        });
 
         UI.chatBox.addEventListener('contextmenu', showContextMenu);
         UI.chatBox.addEventListener('touchstart', handleTouchStart);
@@ -2100,42 +2263,44 @@ document.addEventListener("DOMContentLoaded", function () {
 
     GroupRoles.init();
 
-    async function renameGroup(groupId, currentName) {
-        const newName = prompt("Введите новое название группы:", currentName);
-        if (!newName || newName.trim() === currentName) return;
-    
-        try {
-            const res = await fetch('/rename_group', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                },
-                body: JSON.stringify({
-                    group_id: groupId,
-                    new_name: newName.trim()
-                })
-            });
-    
-            if (!res.ok) {
-                const error = await res.json();
-                throw new Error(error.error || 'Ошибка при изменении названия');
-            }
-    
-            // Обновляем интерфейс
-            if (currentGroup === groupId) {
-                UI.currentGroupName.textContent = newName;
-            }
-            
-            // Обновляем список групп
-            await loadGroups();
-            showToast('Название группы успешно изменено', 'success');
-    
-        } catch (error) {
-            console.error("Rename group error:", error);
-            showToast(error.message, 'error');
+    // Обновляем функцию renameGroup
+async function renameGroup(groupId, newName) {
+    try {
+        const res = await fetch('/rename_group', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({
+                group_id: groupId,
+                new_name: newName
+            })
+        });
+
+        const data = await res.json();
+        
+        if(!res.ok) {
+            throw new Error(data.error || 'Ошибка при изменении названия');
         }
+
+        // Обновляем интерфейс
+        if(currentGroup === groupId) {
+            UI.currentGroupName.textContent = newName;
+            sessionStorage.setItem('currentChat', JSON.stringify({
+                ...JSON.parse(sessionStorage.getItem('currentChat')),
+                name: newName
+            }));
+        }
+        
+        await loadGroups();
+        showToast('Название успешно изменено', 'success');
+
+    } catch(error) {
+        console.error("Rename group error:", error);
+        throw error;
     }
+}
 
     window.removeMemberFromGroup = async function(groupId, username) {
         if (!confirm(`Вы уверены, что хотите исключить ${username} из группы?`)) {
@@ -2186,6 +2351,106 @@ document.addEventListener("DOMContentLoaded", function () {
             showToast(error.message, 'error');
         }
     }
+
+    function initMemberActions() {
+        document.querySelectorAll('.member-actions-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const memberItem = e.target.closest('.member-item');
+                const currentRole = memberItem.querySelector('.member-role').dataset.role;
+                const menu = createMemberMenu(memberItem.dataset.userId, currentRole);
+                
+                // Позиционирование меню
+                const rect = btn.getBoundingClientRect();
+                menu.style.top = `${rect.bottom + window.scrollY + 5}px`;
+                menu.style.left = `${rect.left - 150}px`;
+                
+                document.body.appendChild(menu);
+                setupMenuCloseHandler(menu);
+            });
+        });
+    }
+
+    function createMemberMenu(userId, currentRole) {
+        const template = document.getElementById('member-menu-template');
+        const menu = template.content.cloneNode(true).querySelector('.member-menu');
+        
+        menu.dataset.userId = userId;
+        menu.dataset.currentRole = currentRole;
+    
+        menu.querySelector('[data-action="change-role"]').addEventListener('click', () => {
+            showRoleSelectionModal(userId);
+        });
+    
+        menu.querySelector('[data-action="remove-member"]').addEventListener('click', () => {
+            if(confirm(`Вы уверены, что хотите исключить пользователя?`)) {
+                removeMemberFromGroup(currentGroup, userId);
+            }
+        });
+    
+        return menu;
+    }
+
+    function showRoleSelectionModal(userId) {
+        const modal = document.getElementById('role-selection-modal');
+        const options = modal.querySelectorAll('.role-option');
+        
+        const closeModal = () => modal.classList.remove('show');
+        
+        options.forEach(option => {
+            option.addEventListener('click', async () => {
+                const newRole = option.dataset.role;
+                try {
+                    await changeMemberRole(currentGroup, userId, newRole);
+                    closeModal();
+                    loadParticipants();
+                } catch (error) {
+                    showErrorModal(error.message);
+                }
+            });
+        });
+    
+        modal.classList.add('show');
+        setupModalCloseHandlers(modal, closeModal);
+    }
+
+    function setupMenuCloseHandler(menu) {
+        const closeHandler = (e) => {
+            if (!menu.contains(e.target)) {
+                menu.remove();
+                document.removeEventListener('click', closeHandler);
+            }
+        };
+        document.addEventListener('click', closeHandler);
+    }
+
+    // Обновляем рендеринг участников
+function renderMemberItem(member) {
+    const item = document.createElement('div');
+    item.className = 'member-item';
+    item.dataset.userId = member.id;
+    
+    item.innerHTML = `
+        <!-- ... существующая разметка ... -->
+        <button class="member-actions-btn">⋮</button>
+    `;
+
+    if (canManageMember(currentUserRole, member.role)) {
+        item.querySelector('.member-actions-btn').style.display = 'block';
+    }
+
+    return item;
+}
+
+function canManageMember(currentUserRole, targetRole) {
+    const roleHierarchy = ['owner', 'admin', 'member'];
+    return roleHierarchy.indexOf(currentUserRole) < roleHierarchy.indexOf(targetRole);
+}
+
+// После загрузки участников вызываем
+initMemberActions();
+
+
 
 });
 

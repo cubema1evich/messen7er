@@ -31,9 +31,7 @@
         </div>
         <div class="sidebar-content">
             <div id="groups-list" class="groups-list"></div>
-            <button id="create-group-btn" class="create-group-btn">
-                + Новая группа
-            </button>
+            <button id="create-group-btn" class="create-group-btn">Новая группа</button>
         </div>
         <div class="private-chat-section">
             <h4>Личные чаты</h4>
@@ -151,5 +149,84 @@
     <audio id="sound-effect" preload="auto">
         <source src="static/Sound/ima-make-u-pop-like-that.mp3" type="audio/mpeg">
     </audio>
+    <div id="create-group-modal" class="confirm-modal">
+        <div class="confirm-content">
+            <span class="confirm-close">&times;</span>
+            <h3>Создание новой группы</h3>
+            <div class="input-container">
+                <input type="text" id="group-name-input" 
+                       placeholder="Введите название группы">
+            </div>
+            <div class="confirm-buttons">
+                <button id="create-group-cancel" class="confirm-btn cancel-btn">Отмена</button>
+                <button id="create-group-confirm" class="confirm-btn delete-btn">Создать</button>
+            </div>
+        </div>
+    </div>
+    <div id="error-modal" class="confirm-modal">
+        <div class="confirm-content" style="max-width: 350px;">
+            <span class="confirm-close">&times;</span>
+            <h3>Ошибка</h3>
+            <p id="error-message"></p>
+            <div class="confirm-buttons">
+                <button id="error-ok" class="confirm-btn delete-btn">OK</button>
+            </div>
+        </div>
+    </div>
+    <div id="add-member-modal" class="confirm-modal">
+        <div class="confirm-content minimal-modal">
+            <span class="confirm-close minimal-close">&times;</span>
+            <h3 class="minimal-title">Добавить участника</h3>
+            <input type="text" id="member-name-input" 
+                 placeholder="Имя пользователя"
+                 class="minimal-input">
+            <div class="minimal-buttons">
+                <button id="add-member-cancel" class="minimal-btn cancel">Отмена</button>
+                <button id="add-member-confirm" class="minimal-btn confirm">Добавить</button>
+            </div>
+        </div>
+    </div>
+    <div id="rename-group-modal" class="confirm-modal">
+        <div class="confirm-content minimal-modal">
+            <span class="confirm-close minimal-close">&times;</span>
+            <h3 class="minimal-title">Изменить название</h3>
+            <input type="text" id="rename-group-input" 
+                 placeholder="Новое название группы"
+                 class="minimal-input">
+            <div class="minimal-buttons">
+                <button id="rename-group-cancel" class="minimal-btn cancel">Отмена</button>
+                <button id="rename-group-confirm" class="minimal-btn confirm">Сохранить</button>
+            </div>
+        </div>
+    </div>
+    <template id="member-menu-template">
+        <div class="member-menu">
+            <div class="menu-item" data-action="change-role">
+                <span class="menu-icon">🛡️</span>
+                Изменить роль
+            </div>
+            <div class="menu-item danger" data-action="remove-member">
+                <span class="menu-icon">🚪</span>
+                Исключить
+            </div>
+        </div>
+    </template>
+    
+    <div id="role-selection-modal" class="confirm-modal">
+        <div class="confirm-content minimal-modal">
+            <span class="confirm-close minimal-close">&times;</span>
+            <h3 class="minimal-title">Выбор роли</h3>
+            <div class="role-options">
+                <div class="role-option" data-role="admin">
+                    <span class="role-icon">🛡️</span>
+                    Администратор
+                </div>
+                <div class="role-option" data-role="member">
+                    <span class="role-icon">👤</span>
+                    Участник
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
