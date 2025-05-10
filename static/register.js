@@ -8,9 +8,9 @@ document.addEventListener("DOMContentLoaded", function () {
         const alert = document.createElement('div');
         alert.className = `alert ${type}`;
         alert.innerHTML = `
-            <span class="alert-icon">${type === 'error' ? '⚠' : '✓'}</span>
-            ${message}
-        `;
+        <span class="alert-icon">${type === 'error' ? '⚠' : '✓'}</span>
+        ${message}
+    `;
         container.appendChild(alert);
         
         setTimeout(() => {
@@ -25,7 +25,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function validateForm(username, password) {
-        // Очистка предыдущих ошибок
+        // 1 Очистка предыдущих ошибок
         usernameInput.classList.remove('input-error');
         passwordInput.classList.remove('input-error');
 
