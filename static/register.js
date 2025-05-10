@@ -25,7 +25,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function validateForm(username, password) {
-        // Очистка предыдущих ошибок
+        // 1 Очистка предыдущих ошибок
         usernameInput.classList.remove('input-error');
         passwordInput.classList.remove('input-error');
 
