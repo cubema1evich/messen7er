@@ -648,7 +648,33 @@ document.addEventListener("DOMContentLoaded", function () {
         showToast('Загрузка началась', 'success');
     }
 
-    function showToast(message, type = 'info') {
+    let lastToast = {
+        message: null,
+        type: null,
+        timestamp: 0
+    };
+
+    function showToast(message, type = 'info', onClick = null) {
+        const now = Date.now();
+        const toastCooldown = 3000; // 3 секунды между одинаковыми уведомлениями
+        
+        // Проверяем, не показывали ли мы уже такое же уведомление недавно
+        if (lastToast.message === message && 
+            lastToast.type === type && 
+            (now - lastToast.timestamp) < toastCooldown) {
+            return;
+        }
+        
+        // Обновляем информацию о последнем toast
+        lastToast = {
+            message,
+            type,
+            timestamp: now
+        };
+        
+        // Удаляем все существующие toast перед созданием нового
+        document.querySelectorAll('.toast').forEach(toast => toast.remove());
+        
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
         
@@ -664,11 +690,26 @@ document.addEventListener("DOMContentLoaded", function () {
             <span class="toast-message">${message}</span>
         `;
         
+        if (onClick) {
+            toast.style.cursor = 'pointer';
+            toast.addEventListener('click', onClick);
+        }
+        
         document.body.appendChild(toast);
         
         setTimeout(() => {
             toast.classList.add('fade-out');
-            setTimeout(() => toast.remove(), 500);
+            setTimeout(() => {
+                toast.remove();
+                // Сбрасываем lastToast, если это было последнее уведомление
+                if (lastToast.message === message && lastToast.type === type) {
+                    lastToast = {
+                        message: null,
+                        type: null,
+                        timestamp: 0
+                    };
+                }
+            }, 500);
         }, 3000);
     }
 
