@@ -175,38 +175,31 @@ document.addEventListener("DOMContentLoaded", function () {
         isTabActive = false;
     });
 
-    function checkForUpdates() {
+    async function checkForUpdates() {
         if (!isTabActive) return;
-        
+    
         try {
-            // Всегда проверяем обновления интерфейса
-            checkInterfaceUpdates();
+            // 1. Проверяем обновления интерфейса (группы, чаты)
+            await checkInterfaceUpdates();
             
-            // if (UI.membersSidebar.classList.contains('active')) {
-            //     loadParticipants();
-            // }
-            
-            // Для всех случаев проверяем приватные чаты
-            loadPrivateChats();
-            
-            // Загружаем соответствующие сообщения
+            // 2. Проверяем новые сообщения в текущем чате
             if (currentGroup) {
-                loadMessages();
+                await loadMessages();
             } else if (currentPrivateChat) {
-                loadPrivateMessages();
+                await loadPrivateMessages();
             } else {
-                loadMessages();
+                await loadMessages(); // Общий чат
             }
             
-            // Проверяем измененные/удаленные сообщения
-            checkDeletedMessages();
-            checkEditedMessages();
+            // 3. Проверяем измененные/удаленные сообщения
+            await checkDeletedMessages();
+            await checkEditedMessages();
             
         } catch (e) {
-            console.error('Interval error:', e);
+            console.error('Update error:', e);
+        } finally {
+            debouncedUpdate();
         }
-        
-        debouncedUpdate();;
     }
     
     let updateTimeout;
@@ -284,33 +277,28 @@ document.addEventListener("DOMContentLoaded", function () {
     async function loadMessages() {
         try {
             let url;
-            let params = `timestamp=${lastTimestamp}`;
-            
             if (currentGroup) {
+                // Проверяем доступ к группе перед загрузкой сообщений
                 const accessRes = await fetch(`/check_group_access?group_id=${currentGroup}`);
-                const accessData = await accessRes.json();
-                
-                if (!accessData.has_access) {
+                if (!accessRes.ok) {
                     currentGroup = null;
                     sessionStorage.removeItem('currentChat');
                     UI.currentGroupName.textContent = 'Общий чат';
-                    UI.chatBox.innerHTML = '';
-                    lastTimestamp = 0;
                     return loadMessages();
                 }
-                
-                url = `/get_group_messages?group_id=${currentGroup}&${params}`;
-            } else if (currentPrivateChat) {
-                url = `/get_private_messages?user=${encodeURIComponent(currentPrivateChat)}&${params}`;
+                url = `/get_group_messages?group_id=${currentGroup}&timestamp=${lastTimestamp}`;
             } else {
-                url = `/get_messages?${params}`;
+                url = `/get_messages?timestamp=${lastTimestamp}`;
             }
     
-            const res = await fetch(url, {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                }
-            });
+            const res = await fetch(url);
+            const data = await res.json();
+            
+            if (data.messages?.length > 0) {
+                displayMessages(data.messages);
+                lastTimestamp = data.timestamp;
+            }
+    
             
             if (res.status === 401) {
                 window.location.href = '/login';
@@ -333,8 +321,6 @@ document.addEventListener("DOMContentLoaded", function () {
                 const error = await res.json();
                 throw new Error(error.message || `HTTP error! status: ${res.status}`);
             }
-            
-            const data = await res.json();
             
             if (lastTimestamp === 0) {
                 UI.chatBox.innerHTML = '';
@@ -817,27 +803,18 @@ document.addEventListener("DOMContentLoaded", function () {
 
     async function checkInterfaceUpdates() {
         try {
-            // Проверяем обновления групп
-            const lastCheck = parseInt(sessionStorage.getItem('groupsLastCheck') || '0');
-        
             // Проверяем обновления групп с передачей последнего времени проверки
-            const groupsRes = await fetch(`/check_groups_updates?last_check=${lastCheck}&force=true`);
-
+            const lastCheck = parseInt(sessionStorage.getItem('groupsLastCheck') || '0');
+            const groupsRes = await fetch(`/check_groups_updates?last_check=${lastCheck}`);
+            
             if (groupsRes.ok) {
                 const data = await groupsRes.json();
                 if (data.updated) {
-                    // Сохраняем новое время проверки
                     sessionStorage.setItem('groupsLastCheck', data.new_timestamp || Date.now());
-                    
-                    // Принудительно обновляем список групп
                     await loadGroups();
-                    
-                    if (currentGroup) {
-                        await loadParticipants();
-                        await loadMessages();  
-                    }
                 }
             }
+            
             // Проверяем обновления приватных чатов
             const chatsRes = await fetch('/check_private_chats_updates');
             if (chatsRes.ok) {
@@ -845,6 +822,11 @@ document.addEventListener("DOMContentLoaded", function () {
                 if (chatsData.updated) {
                     await loadPrivateChats();
                 }
+            }
+            
+            // Если открыт сайдбар участников - обновляем его
+            if (UI.membersSidebar.classList.contains('active')) {
+                await loadParticipants();
             }
         } catch (e) {
             console.error('Interface update error:', e);
@@ -959,8 +941,8 @@ document.addEventListener("DOMContentLoaded", function () {
         try {
             const res = await fetch('/get_groups', {
                 headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
-                    'Cache-Control': 'no-cache'
+                    'Cache-Control': 'no-cache',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
                 }
             });
             
@@ -969,13 +951,15 @@ document.addEventListener("DOMContentLoaded", function () {
             const groups = await res.json();
             const activeGroupId = currentGroup;
             
+            // Сохраняем текущую позицию прокрутки
+            const scrollPosition = UI.groupsList.scrollTop;
+            
             UI.groupsList.innerHTML = `
                 <div class="group-item ${!currentGroup ? 'active' : ''}" 
                     onclick="selectGroup(null, 'Общий чат', this)">
                     Общий чат
                 </div>
-                ${groups.map(group => {
-                    return `
+                ${groups.map(group => `
                     <div class="group-item ${group.id === activeGroupId ? 'active' : ''}" 
                         data-group-id="${group.id}" 
                         onclick="selectGroup(${group.id}, '${group.name}', this)">
@@ -991,9 +975,12 @@ document.addEventListener("DOMContentLoaded", function () {
                             </div>
                         </div>
                     </div>
-                    `;
-                }).join('')}
+                `).join('')}
             `;
+            
+            // Восстанавливаем позицию прокрутки
+            UI.groupsList.scrollTop = scrollPosition;
+            
         } catch (error) {
             console.error("Error loading groups:", error);
             UI.groupsList.innerHTML = '<div class="error">Ошибка загрузки групп</div>';
@@ -1409,20 +1396,8 @@ document.addEventListener("DOMContentLoaded", function () {
             const res = await fetch(`/get_private_messages?user=${currentPrivateChat}&timestamp=${lastTimestamp}`);
             const data = await res.json();
             
-            if(data.messages?.length > 0) {
-                // Сохраняем позицию прокрутки
-                const prevScrollHeight = UI.chatBox.scrollHeight;
-                
+            if (data.messages?.length > 0) {
                 displayMessages(data.messages);
-                
-                // Плавная прокрутка только для новых сообщений
-                if(data.messages.some(msg => msg.timestamp > lastTimestamp)) {
-                    UI.chatBox.scrollTo({
-                        top: UI.chatBox.scrollHeight,
-                        behavior: 'smooth'
-                    });
-                }
-                
                 lastTimestamp = data.timestamp;
             }
         } catch (error) {
@@ -2229,6 +2204,25 @@ document.addEventListener("DOMContentLoaded", function () {
         } catch (error) {
             console.error("Remove member error:", error);
             showToast(error.message, 'error');
+        }
+    }
+
+    let lastGroupsCount = 0;
+
+    async function checkGroupsUpdates() {
+        try {
+            const res = await fetch('/get_groups');
+            const data = await res.json();
+            
+            if (data.length > lastGroupsCount && lastGroupsCount > 0) {
+                // Новая группа появилась
+                playSoundEffect();
+                showToast('У вас новая группа!', 'success');
+            }
+            
+            lastGroupsCount = data.length;
+        } catch (e) {
+            console.error('Groups count check error:', e);
         }
     }
 
