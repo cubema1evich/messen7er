@@ -969,32 +969,31 @@ document.addEventListener("DOMContentLoaded", function () {
             const groups = await res.json();
             const activeGroupId = currentGroup;
             
-                UI.groupsList.innerHTML = `
-        <div class="group-item ${!currentGroup ? 'active' : ''}" 
-            onclick="selectGroup(null, 'Общий чат', this)">
-            Общий чат
-        </div>
-        ${groups.map(group => {
-            const isOwnerOrAdmin = group.role === 'owner' || group.role === 'admin';
-            return `
-            <div class="group-item ${group.id === activeGroupId ? 'active' : ''}" 
-                data-group-id="${group.id}" 
-                onclick="selectGroup(${group.id}, '${group.name}', this)">
-                <span>${group.name}</span>
-                ${isOwnerOrAdmin ? `
-                <div class="group-menu">
-                    <button class="group-actions-btn" onclick="event.stopPropagation(); toggleGroupMenu(event, ${group.id})">⋮</button>
-                    <div class="group-actions-menu" id="group-menu-${group.id}">
-                        <button class="group-action" onclick="addMemberPrompt(${group.id})">➕ Добавить участника</button>
-                        <button class="group-action" onclick="renameGroupPrompt(${group.id}, '${group.name}')">✏️ Изменить название</button>
-                        <button class="group-action" onclick="leaveGroupPrompt(${group.id})">🚪 Покинуть группу</button>
-                    </div>
+            UI.groupsList.innerHTML = `
+                <div class="group-item ${!currentGroup ? 'active' : ''}" 
+                    onclick="selectGroup(null, 'Общий чат', this)">
+                    Общий чат
                 </div>
-                ` : ''}
-            </div>
+                ${groups.map(group => {
+                    return `
+                    <div class="group-item ${group.id === activeGroupId ? 'active' : ''}" 
+                        data-group-id="${group.id}" 
+                        onclick="selectGroup(${group.id}, '${group.name}', this)">
+                        <span>${group.name}</span>
+                        <div class="group-menu">
+                            <button class="group-actions-btn" onclick="event.stopPropagation(); toggleGroupMenu(event, ${group.id}, '${group.role}')">⋮</button>
+                            <div class="group-actions-menu" id="group-menu-${group.id}">
+                                ${group.role === 'owner' || group.role === 'admin' ? `
+                                    <button class="group-action" onclick="addMemberPrompt(${group.id})">➕ Добавить участника</button>
+                                    <button class="group-action" onclick="renameGroupPrompt(${group.id}, '${group.name}')">✏️ Изменить название</button>
+                                ` : ''}
+                                <button class="group-action" onclick="leaveGroupPrompt(${group.id})">🚪 Покинуть группу</button>
+                            </div>
+                        </div>
+                    </div>
+                    `;
+                }).join('')}
             `;
-        }).join('')}
-    `;
         } catch (error) {
             console.error("Error loading groups:", error);
             UI.groupsList.innerHTML = '<div class="error">Ошибка загрузки групп</div>';
@@ -1009,7 +1008,7 @@ document.addEventListener("DOMContentLoaded", function () {
     };
 
     // Новые функции управления группами
-    window.toggleGroupMenu = function(event, groupId) {
+    window.toggleGroupMenu = function(event, groupId, userRole) {
         event.stopPropagation();
         const menu = document.getElementById(`group-menu-${groupId}`);
         
@@ -1018,12 +1017,12 @@ document.addEventListener("DOMContentLoaded", function () {
             if (m !== menu) m.classList.remove('show');
         });
         
-        // Переключаем текущее меню
+        // Показываем/скрываем текущее меню
         menu.classList.toggle('show');
         
         // Обработчик закрытия при клике вне меню
         const closeHandler = (e) => {
-            if (!menu.contains(e.target) && !event.target.closest('.group-actions-btn')) {
+            if (!menu.contains(e.target)) {
                 menu.classList.remove('show');
                 document.removeEventListener('click', closeHandler);
             }
