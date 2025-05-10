@@ -2130,10 +2130,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     GroupRoles.init();
 
-    async function renameGroup(groupId, currentName) {
-        const newName = prompt("Введите новое название группы:", currentName);
-        if (!newName || newName.trim() === currentName) return;
-    
+    async function renameGroup(groupId, newName) {
         try {
             const res = await fetch('/rename_group', {
                 method: 'POST',
@@ -2143,7 +2140,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 },
                 body: JSON.stringify({
                     group_id: groupId,
-                    new_name: newName.trim()
+                    new_name: newName
                 })
             });
     
