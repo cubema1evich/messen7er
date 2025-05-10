@@ -801,6 +801,26 @@ class AddToGroupView(View):
                         '403 Forbidden'
                     )
                 
+                # Получаем ID целевого пользователя
+                cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
+                target_user = cursor.fetchone()
+                if not target_user:
+                    return json_response(
+                        {'error': 'User not found'}, 
+                        start_response, 
+                        '404 Not Found'
+                    )
+                
+                target_user_id = target_user[0]
+                
+                # Проверяем, что пользователь не пытается добавить самого себя
+                if int(target_user_id) == int(user_id):
+                    return json_response(
+                        {'error': 'Нельзя добавить самого себя в группу'}, 
+                        start_response, 
+                        '400 Bad Request'
+                    )
+
                 # Проверяем существование группы
                 cursor.execute('SELECT name FROM groups WHERE group_id = ?', (group_id,))
                 group = cursor.fetchone()
@@ -2156,7 +2176,7 @@ class RemoveFromGroupView(View):
                     INSERT INTO group_messages 
                     (group_id, user_id, message_text, timestamp)
                     VALUES (?, 0, ?, ?)
-                ''', (group_id, f'Пользователь {username} исключен из группы', int(time.time())))
+                ''', (group_id, f'Пользователь {username} исключен из группы 🚪', int(time.time())))
                 
                 cursor.execute('''
                     DELETE FROM group_messages 

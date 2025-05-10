@@ -1047,28 +1047,33 @@ document.addEventListener("DOMContentLoaded", function () {
                 })
             });
             
-            if (res.ok) {
-                showToast("Пользователь успешно добавлен!", 'success');
-                
-                await loadGroups();
-                
-                if (currentGroup === groupId) {
-                    await loadParticipants();
-                }
-                
-                const groupElement = document.querySelector(`.group-item[data-group-id="${groupId}"]`);
-                if (groupElement) {
-                    groupElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                    groupElement.classList.add('highlight');
-                    setTimeout(() => groupElement.classList.remove('highlight'), 2000);
-                }
-            } else {
+            if (!res.ok) {
                 const error = await res.json();
                 throw new Error(error.error || 'Ошибка добавления пользователя');
+            }
+    
+            showToast("Пользователь успешно добавлен!", 'success');
+            
+            await loadGroups();
+            
+            if (currentGroup === groupId) {
+                await loadParticipants();
+            }
+            
+            const groupElement = document.querySelector(`.group-item[data-group-id="${groupId}"]`);
+            if (groupElement) {
+                groupElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                groupElement.classList.add('highlight');
+                setTimeout(() => groupElement.classList.remove('highlight'), 2000);
             }
         } catch (error) {
             console.error("Error adding member:", error);
             showToast(error.message, 'error');
+            
+            // Если ошибка связана с добавлением самого себя, показываем особое сообщение
+            if (error.message.includes('самого себя')) {
+                showToast('Вы не можете добавить самого себя в группу', 'error');
+            }
         }
     };
     
