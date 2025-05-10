@@ -46,7 +46,6 @@ def initialize_database():
                 group_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
                 creator_id INTEGER,
-                updated_at INTEGER,
                 created_at INTEGER,
                 FOREIGN KEY(creator_id) REFERENCES users(user_id)
             )
