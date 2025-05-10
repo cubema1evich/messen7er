@@ -1,4 +1,3 @@
-![bogdangram](https://i.ibb.co/BsLnTjz/bogdangram.png)
 ## Описание
 Корпоративный веб мессенджер на языке Python разработан для дипломной работы 
 ## Требования
@@ -32,5 +31,4 @@ localhost:8000/register
 - После успешной регистрации вас перенаправит на сайт авторизации
 - После успешной авторизации вас перенаправит на окно с мессенджером
 
-![powered by cubemalevich](https://i.ibb.co/LrcLTV1/poweredbycubemalevich.png)
-
+![powered by halabudalab](https://i.ibb.co/SXHK6JRt/poweredbyhalabudalab.png)
