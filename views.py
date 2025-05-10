@@ -844,7 +844,7 @@ class AddToGroupView(View):
                         INSERT INTO group_messages 
                         (group_id, user_id, message_text, timestamp)
                         VALUES (?, 0, ?, ?)
-                    ''', (group_id, f'Пользователь {username} добавлен в группу как {role}', timestamp))
+                    ''', (group_id, f'Пользователь {username} добавлен в группу! 🎉', timestamp))
                     
                     cursor.connection.commit()
                     
