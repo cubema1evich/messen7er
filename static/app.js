@@ -191,7 +191,10 @@ document.addEventListener("DOMContentLoaded", function () {
                 await loadMessages(); // Общий чат
             }
             
-            // 3. Проверяем измененные/удаленные сообщения
+            // 3. Всегда обновляем список личных чатов при проверке обновлений
+            await loadPrivateChats();
+            
+            // 4. Проверяем измененные/удаленные сообщения
             await checkDeletedMessages();
             await checkEditedMessages();
             
@@ -1452,10 +1455,17 @@ document.addEventListener("DOMContentLoaded", function () {
             const data = await res.json();
             renderPrivateChats(data.chats || []); 
             
+            // Если у нас есть активный приватный чат, но его нет в списке,
+            // добавляем его вручную (это может быть новый чат)
             if (currentPrivateChat) {
                 const chatExists = data.chats.some(c => c.username === currentPrivateChat);
                 if (!chatExists) {
-                    selectGroup(null, 'Общий чат');
+                    // Добавляем текущий чат в начало списка
+                    const newChat = {
+                        username: currentPrivateChat,
+                        last_activity: Math.floor(Date.now()/1000)
+                    };
+                    renderPrivateChats([newChat, ...data.chats]);
                 }
             }
             
@@ -1477,7 +1487,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
             }
             
-            // Всегда добавляем текущий чат, если он активен
+            // Всегда добавляем текущий чат, если он активен и его еще нет в списке
             if (currentPrivateChat && !chats.some(c => c.username === currentPrivateChat)) {
                 chats.unshift({
                     username: currentPrivateChat,
