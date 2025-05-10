@@ -30,6 +30,7 @@ routes = {
     '/change_member_role': ChangeMemberRoleView,
     '/rename_group': RenameGroupView,
     '/remove_from_group': RemoveFromGroupView,
+    '/check_groups_updates': CheckGroupsUpdatesView,
     r'^/get_general_members$': GetGeneralMembersView,
     r'^/edit_message/(\d+)$': EditMessageView,
     r'^/delete_message/(\d+)$': DeleteMessageView,
