@@ -88,7 +88,7 @@ document.addEventListener("DOMContentLoaded", function () {
             });
     }
     
-    // Общая функция для показа уведомлений
+    // 1 Общая функция для показа уведомлений
 function showAlert(message, type = 'error') {
     const container = document.getElementById('alerts-container');
     
