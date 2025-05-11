@@ -464,7 +464,30 @@ class DeleteMessageView(View):
             table, id_col, user_col = table_info[message_type]
 
             with get_db_cursor() as cursor:
-                # Для групповых сообщений проверяем права
+                # Для общего чата и личных сообщений проверяем, что это сообщение пользователя
+                if message_type in ['general', 'private']:
+                    cursor.execute(f'''
+                        SELECT {user_col} 
+                        FROM {table} 
+                        WHERE {id_col} = ?
+                    ''', (message_id,))
+                    message_owner = cursor.fetchone()
+                    
+                    if not message_owner:
+                        return json_response(
+                            {'error': 'Message not found'}, 
+                            start_response, 
+                            '404 Not Found'
+                        )
+                    
+                    if int(message_owner[0]) != user_id:
+                        return json_response(
+                            {'error': 'Недостаточно прав для удаления'}, 
+                            start_response, 
+                            '403 Forbidden'
+                        )
+
+                # Для групповых сообщений оставляем текущую логику проверки прав
                 if message_type == 'group':
                     # Получаем group_id сообщения
                     cursor.execute(f'''
@@ -1605,6 +1628,7 @@ class EditMessageView(View):
                 )
 
             with get_db_cursor() as cursor:
+                # Для всех типов сообщений проверяем, что это сообщение пользователя
                 cursor.execute(f'''
                     SELECT {user_col} 
                     FROM {table} 
@@ -1620,11 +1644,29 @@ class EditMessageView(View):
                     )
 
                 if int(result[0]) != int(user_id):
-                    return json_response(
-                        {'error': 'Нет прав на редактирование'}, 
-                        start_response, 
-                        '403 Forbidden'
-                    )
+                    # Для групповых сообщений проверяем права администратора
+                    if message_type == 'group':
+                        cursor.execute('''
+                            SELECT role FROM group_members 
+                            WHERE group_id = (
+                                SELECT group_id FROM group_messages WHERE message_id = ?
+                            ) AND user_id = ?
+                        ''', (message_id, user_id))
+                        role_result = cursor.fetchone()
+                        
+                        if not role_result or role_result[0] not in ('owner', 'admin'):
+                            return json_response(
+                                {'error': 'Нет прав на редактирование'}, 
+                                start_response, 
+                                '403 Forbidden'
+                            )
+                    else:
+                        # Для общего чата и личных сообщений запрещаем редактирование чужих сообщений
+                        return json_response(
+                            {'error': 'Нет прав на редактирование'}, 
+                            start_response, 
+                            '403 Forbidden'
+                        )
 
                 cursor.execute(f'''
                     UPDATE {table} 
@@ -1642,6 +1684,10 @@ class EditMessageView(View):
                 start_response, 
                 '500 Internal Server Error'
             )
+
+    def get_user_id(self, environ):
+        request = Request(environ)
+        return int(request.cookies.get('user_id', 0))
 
     def get_user_id(self, environ):
         request = Request(environ)
