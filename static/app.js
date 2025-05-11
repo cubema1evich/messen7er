@@ -570,52 +570,72 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
-    function viewAttachments(messageElement) {
-        const attachments = messageElement.querySelector('.attachments');
-        if (!attachments) return;
+function viewAttachments(messageElement) {
+    const attachments = messageElement.querySelector('.attachments');
+    if (!attachments) return;
+
+    // Создаем модальное окно для просмотра
+    const modal = document.createElement('div');
+    modal.className = 'attachments-modal';
     
-        // Создаем модальное окно для просмотра
-        const modal = document.createElement('div');
-        modal.className = 'attachments-modal';
-        
-        let modalContent = '<div class="attachments-modal-content">';
-        modalContent += '<span class="close-modal-btn">&times;</span>';
-        modalContent += '<h3>Вложения</h3>';
-        modalContent += '<div class="attachments-container">';
-        
-        // Добавляем все вложения в модальное окно
-        attachments.querySelectorAll('.attachment-image, .attachment-file').forEach(att => {
-            if (att.classList.contains('attachment-image')) {
-                const imgSrc = att.querySelector('img').src;
-                modalContent += `
-                    <div class="modal-attachment">
-                        <img src="${imgSrc}" alt="Attachment">
-                        <a href="${imgSrc}" download class="download-btn">Скачать</a>
-                    </div>
-                `;
-            } else {
-                const fileLink = att.querySelector('a').href;
-                const fileName = att.querySelector('a').textContent;
-                modalContent += `
-                    <div class="modal-attachment">
-                        <div class="file-icon">📄</div>
-                        <span class="file-name">${fileName}</span>
-                        <a href="${fileLink}" download class="download-btn">Скачать</a>
-                    </div>
-                `;
-            }
-        });
-        
-        modalContent += '</div></div>';
-        modal.innerHTML = modalContent;
-        
-        // Закрытие модального окна
-        modal.querySelector('.close-modal-btn').addEventListener('click', () => {
+    let modalContent = '<div class="attachments-modal-content">';
+    modalContent += '<button class="close-modal-btn">&times;</button>';
+    modalContent += '<h3>Вложения</h3>';
+    modalContent += '<div class="attachments-container">';
+    
+    // Добавляем все вложения в модальное окно
+    attachments.querySelectorAll('.attachment-image, .attachment-file').forEach(att => {
+        if (att.classList.contains('attachment-image')) {
+            const imgSrc = att.querySelector('img').src;
+            const fileName = att.querySelector('.file-name').textContent;
+            modalContent += `
+                <div class="modal-attachment">
+                    <img src="${imgSrc}" alt="${fileName}">
+                    <span class="file-name">${fileName}</span>
+                    <a href="${imgSrc}" download="${fileName}" class="download-btn">Скачать</a>
+                </div>
+            `;
+        } else {
+            const fileLink = att.querySelector('a').href;
+            const fileName = att.querySelector('a').textContent;
+            modalContent += `
+                <div class="modal-attachment">
+                    <div class="file-icon">📄</div>
+                    <span class="file-name">${fileName}</span>
+                    <a href="${fileLink}" download="${fileName}" class="download-btn">Скачать</a>
+                </div>
+            `;
+        }
+    });
+    
+    modalContent += '</div></div>';
+    modal.innerHTML = modalContent;
+    
+    // Закрытие модального окна
+    modal.querySelector('.close-modal-btn').addEventListener('click', () => {
+        modal.classList.remove('show');
+        setTimeout(() => {
             modal.remove();
-        });
-        
-        document.body.appendChild(modal);
-    }
+        }, 300);
+    });
+    
+    document.body.appendChild(modal);
+    
+    // Показываем модальное окно с анимацией
+    setTimeout(() => {
+        modal.classList.add('show');
+    }, 10);
+    
+    // Закрытие при клике на фон
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.classList.remove('show');
+            setTimeout(() => {
+                modal.remove();
+            }, 300);
+        }
+    });
+}
     
     function downloadAllAttachments(messageElement) {
         const attachments = messageElement.querySelectorAll('.attachment-image img, .attachment-file a');
