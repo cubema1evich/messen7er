@@ -160,51 +160,50 @@ button:hover::after {
     position: fixed;
     top: 20px;
     right: 20px;
-    z-index: 9999;
-    max-width: 300px;
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
+    z-index: 1000;
+    max-width: 400px;
 }
 
 .alert {
     padding: 15px 25px;
+    border-radius: 8px;
     margin-bottom: 15px;
-    border-radius: 12px;
-    font-size: 14px;
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    opacity: 0;
-    transform: translateX(120%);
-    animation: slideIn 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-    box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+    gap: 15px;
+    animation: slideIn 0.3s ease-out;
     background: white;
-    max-width: 100%;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.15);
 }
 
-@keyframes slideIn {
-    to {
-        opacity: 1;
-        transform: translateX(0);
-    }
+.alert-error {
+    border-left: 4px solid #e74c3c;
+    background: #fee;
 }
 
-.alert.error {
-    background: #FFE5E5;
-    border-left: 4px solid #FF6B6B;
-    color: #CC0000;
-}
-
-.alert.success {
-    background: #E8FFEE;
-    border-left: 4px solid #87C38F;
-    color: #2E7D32;
+.alert-success {
+    border-left: 4px solid #2ecc71;
+    background: #efffee;
 }
 
 .alert-icon {
-    margin-right: 12px;
-    font-size: 20px;
+    font-size: 24px;
+}
+
+.alert-text {
+    flex: 1;
+    font-size: 14px;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
 }
 
 @media (max-width: 480px) {

@@ -662,54 +662,49 @@ class LoginView(TemplateView):
                     '400 Bad Request'
                 )
 
-            if username and password:
-                user_id = self.authenticate_user(username, password)
-                if user_id is not None:
-                    status = '200 OK'
+            try:
+                user_id, error = self.authenticate_user(username, password)
+                if user_id:
                     headers = [
                         ('Content-Type', 'application/json'),
                         ('Set-Cookie', f'user_id={user_id}; Path=/; HttpOnly; SameSite=Lax')
                     ]
-                    data = json.dumps({'redirect': '/'})  
-                    start_response(status, headers)
+                    data = json.dumps({'redirect': '/'})
+                    start_response('200 OK', headers)
                     return [data.encode('utf-8')]
                 else:
-                    status = '401 Unauthorized'
-                    headers = [
-                        ('Content-Type', 'application/json'),
-                        ('Set-Cookie', f'user_id={user_id}; Path=/; HttpOnly; SameSite=Lax')
-                    ]
-                    data = json.dumps({'error': 'Invalid username or password'})
-                    start_response(status, headers)
-                    return [data.encode('utf-8')]
-            else:
-                status = '400 Bad Request'
-                headers = [
-                        ('Content-Type', 'application/json'),
-                        ('Set-Cookie', f'user_id={user_id}; Path=/; HttpOnly; SameSite=Lax')
-                    ]
-                data = json.dumps({'error': 'Invalid username or password'})
-                start_response(status, headers)
-                return [data.encode('utf-8')]
-        else:
-            return super().response(environ, start_response)
+                    return json_response(
+                        {'error': error},
+                        start_response,
+                        '401 Unauthorized'
+                    )
+            except Exception as e:
+                logging.error(f"Login error: {str(e)}")
+                return json_response(
+                    {'error': 'Внутренняя ошибка сервера'},
+                    start_response,
+                    '500 Internal Server Error'
+                )
+        return super().response(environ, start_response)
         
     def authenticate_user(self, username, password):
-        """
-        Аутентифицирует пользователя.
-        """
         try:
             with get_db_cursor() as cursor:
+                # Проверка существования пользователя
                 cursor.execute(
                     'SELECT id, password FROM users WHERE username=?',
                     (username,)
                 )
                 result = cursor.fetchone()
-                if result:
-                    user_id, hashed_password = result
-                    if check_password(hashed_password, password):
-                        return user_id
-            return None
+                
+                if not result:
+                    return None, 'Пользователь не найден'
+                
+                user_id, hashed_password = result
+                if not check_password(hashed_password, password):
+                    return None, 'Неверный пароль'
+                
+                return user_id, None
         except Exception as e:
             raise
 
