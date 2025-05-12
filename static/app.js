@@ -51,6 +51,7 @@ document.addEventListener("DOMContentLoaded", function () {
     };
 
     // Инициализация переменных состояния
+    let participantsNeedUpdate = false;
     let currentGroup = null;
     let currentPrivateChat = null;
     let lastTimestamp = 0;
@@ -107,7 +108,7 @@ document.addEventListener("DOMContentLoaded", function () {
     UI.membersToggle.addEventListener('click', function(e) {
         e.stopPropagation();
         UI.membersSidebar.classList.toggle('active');
-        loadParticipants();
+        markParticipantsForUpdate();
     });
 
     //Обработчик для кнопки файла
@@ -214,7 +215,14 @@ document.addEventListener("DOMContentLoaded", function () {
         }, 1000);
     }
 
-    checkForUpdates();
+    let participantsUpdateTimeout;
+
+    function debouncedLoadParticipants() {
+        clearTimeout(participantsUpdateTimeout);
+        participantsUpdateTimeout = setTimeout(() => {
+            loadParticipants();
+        }, 2000); // Обновлять не чаще чем раз в 2 секунды
+    }
 
     // Функции
     function initEmojiPicker() {
@@ -798,13 +806,13 @@ function viewAttachments(messageElement) {
                         },
                         body: JSON.stringify({ 
                             message: newText,
-                            timestamp: Math.floor(Date.now()/1000) // Добавляем текущий timestamp
+                            timestamp: Math.floor(Date.now()/1000) 
                         })
                     });
                     
                     if (res.ok) {
                         textElement.textContent = newText;
-                        messageElement.dataset.timestamp = Math.floor(Date.now()/1000); // Обновляем timestamp
+                        messageElement.dataset.timestamp = Math.floor(Date.now()/1000); 
                         editContainer.replaceWith(textElement);
                     } else {
                         const error = await res.json();
@@ -849,7 +857,7 @@ function viewAttachments(messageElement) {
             
             // Если открыт сайдбар участников - обновляем его
             if (UI.membersSidebar.classList.contains('active')) {
-                await loadParticipants();
+                markParticipantsForUpdate();
             }
         } catch (e) {
             console.error('Interface update error:', e);
@@ -1835,6 +1843,9 @@ function viewAttachments(messageElement) {
     }
 
     async function loadParticipants() {
+        if (!participantsNeedUpdate) return;
+        participantsNeedUpdate = false;
+        
         try {
             if (!currentGroup) {
                 // Для общего чата
@@ -1868,7 +1879,6 @@ function viewAttachments(messageElement) {
                 return;
             }
             
-            // Остальной код для групп остается без изменений
             const res = await fetch(`/get_group_members?group_id=${currentGroup}`);
             const data = await res.json();
             
@@ -1880,7 +1890,7 @@ function viewAttachments(messageElement) {
             
             data.members.forEach(member => {
                 const isMe = member.username === currentUsername;
-                const isOnline = isMe; // Текущий пользователь всегда онлайн
+                const isOnline = isMe;
                 
                 const canManage = (currentUser.role === 'owner' || 
                                  (currentUser.role === 'admin' && member.role === 'member')) && 
@@ -1910,6 +1920,11 @@ function viewAttachments(messageElement) {
             console.error("Error loading participants:", error);
             UI.membersList.innerHTML = '<div class="error">Ошибка загрузки участников</div>';
         }
+    }
+
+    function markParticipantsForUpdate() {
+        participantsNeedUpdate = true;
+        debouncedLoadParticipants();
     }
     
     window.handleMemberClick = function(username) {
