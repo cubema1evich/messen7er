@@ -101,7 +101,14 @@ document.addEventListener("DOMContentLoaded", function () {
             selectPrivateChat(savedChat.name);
         }
     } else {
+        // Явно открываем общий чат, если ничего не сохранено
         selectGroup(null, 'Общий чат');
+        // Сохраняем состояние общего чата 1
+        sessionStorage.setItem('currentChat', JSON.stringify({
+            type: 'general',
+            id: null,
+            name: 'Общий чат'
+        }));
     }
 
     // Обработчики для правого сайдбара
@@ -1164,9 +1171,9 @@ function viewAttachments(messageElement) {
         UI.currentGroupName.textContent = groupName || 'Общий чат';
         UI.chatBox.innerHTML = '';
         lastTimestamp = 0;
-        loadGroups();
-        loadMessages();
-        loadPrivateChats();
+        await loadGroups();
+        await loadMessages();
+        await loadParticipants(); 
     };
 
 
