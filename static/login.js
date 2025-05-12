@@ -26,6 +26,7 @@ document.addEventListener("DOMContentLoaded", function () {
         e.preventDefault();
         const username = document.getElementById("username").value.trim();
         const password = document.getElementById("password").value;
+        const requestBody = new URLSearchParams({ username, password });
 
         if (!isValidUsername(username)) {
             showAlert('Имя пользователя может содержать только:<br>• Буквы (рус/англ)<br>• Цифры<br>• Дефисы и подчеркивания<br>• Длину от 3 до 20 символов');
@@ -37,7 +38,7 @@ document.addEventListener("DOMContentLoaded", function () {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
             },
-            body: new URLSearchParams({ username, password })
+            body: requestBody
         })
         .then(response => {
             if (!response.ok) {
@@ -48,6 +49,7 @@ document.addEventListener("DOMContentLoaded", function () {
         .then(data => {
             if (data.redirect) {
                 window.location.href = data.redirect;
+                sessionStorage.setItem('username', username);
             }
         })
         .catch(error => {
