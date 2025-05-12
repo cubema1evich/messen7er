@@ -92,48 +92,75 @@ button:hover {
 
 #alerts-container {
     position: fixed;
-    top: 20px;
-    right: 20px;
-    z-index: 9999;
-    max-width: 300px;
-    width: 100%;
+    top: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    width: 90%;
+    max-width: 400px;
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
+    align-items: center;
 }
 
 .alert {
-    padding: 15px 25px;
-    margin-bottom: 15px;
+    padding: 16px 24px;
+    margin-bottom: 12px;
     border-radius: 12px;
-    font-size: 14px;
-    display: inline-flex;
+    font-size: 15px;
+    display: flex;
     align-items: center;
     opacity: 0;
-    transform: translateX(120%);
-    animation: slideIn 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-    box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+    animation: alertSlideIn 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
     background: white;
-    max-width: 100%;
+    width: 100%;
+    border: 2px solid;
+    border-top: none;
+    border-bottom: none;
 }
 
-@keyframes slideIn {
-    to {
+@keyframes alertSlideIn {
+    0% {
+        opacity: 0;
+        transform: translateY(-100%);
+    }
+    100% {
         opacity: 1;
-        transform: translateX(0);
+        transform: translateY(0);
     }
 }
 
 .alert.success {
-    background: #e8f5e9;
-    border: 1px solid #a5d6a7;
-    color: #2e7d32;
-    border-left: 4px solid #2e7d32;
+    background: #f0fdf4;
+    border-color: #34d399;
+    color: #065f46;
+}
+
+.alert.error {
+    background: #fff1f2;
+    border-color: #fda4af;
+    color: #881337;
 }
 
 .alert-icon {
     margin-right: 12px;
-    font-size: 20px;
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+}
+
+/* Для мобилок */
+@media (max-width: 480px) {
+    #alerts-container {
+        top: 15px;
+        width: calc(100% - 30px);
+    }
+    
+    .alert {
+        padding: 14px 20px;
+        font-size: 14px;
+    }
 }
 
 .input-error {

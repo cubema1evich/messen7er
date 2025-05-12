@@ -7,16 +7,28 @@ document.addEventListener("DOMContentLoaded", function () {
         const container = document.getElementById('alerts-container');
         const alert = document.createElement('div');
         alert.className = `alert ${type}`;
+        
+        // Иконки
+        const icons = {
+            error: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>`,
+            success: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                       <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                     </svg>`
+        };
+    
         alert.innerHTML = `
-        <span class="alert-icon">${type === 'error' ? '⚠' : '✓'}</span>
-        ${message}
-    `;
-        container.appendChild(alert);
+            <span class="alert-icon">${icons[type]}</span>
+            ${message}
+        `;
+        
+        container.prepend(alert);
         
         setTimeout(() => {
             alert.style.opacity = '0';
             setTimeout(() => alert.remove(), 300);
-        }, 5000);
+        }, 4000);
     }
 
     function isValidUsername(username) {
