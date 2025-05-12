@@ -1,9 +1,15 @@
 document.addEventListener("DOMContentLoaded", function () {
     const loginForm = document.getElementById("login-form");
 
+    function isValidUsername(username) {
+        const regex = /^[a-zA-Zа-яА-Я0-9_-]{3,20}$/u;
+        return regex.test(username);
+    }
+
     function showAlert(message, type = 'error') {
         const container = document.getElementById('alerts-container');
         const alert = document.createElement('div');
+        
         alert.className = `alert alert-${type}`;
         alert.innerHTML = `
             <span class="alert-icon">${type === 'error' ? '⚠' : '✅'}</span>
@@ -20,6 +26,11 @@ document.addEventListener("DOMContentLoaded", function () {
         e.preventDefault();
         const username = document.getElementById("username").value.trim();
         const password = document.getElementById("password").value;
+
+        if (!isValidUsername(username)) {
+            showAlert('Имя пользователя может содержать только:<br>• Буквы (рус/англ)<br>• Цифры<br>• Дефисы и подчеркивания<br>• Длину от 3 до 20 символов');
+            return;
+        }
 
         fetch("/login", {
             method: "POST",
