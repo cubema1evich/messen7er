@@ -725,3 +725,96 @@ class GroupModel:
                 'role': row[1],
                 'joined_at': row[2]
             } for row in cursor.fetchall()]
+        
+    @staticmethod
+    def rename_group(group_id: int, new_name: str, user_id: int) -> dict:
+        """
+        Переименовывает группу с проверкой прав
+        Возвращает {status: 'success'} или {error: 'message'}
+        """
+        try:
+            with get_db_cursor() as cursor:
+                # Проверяем права пользователя
+                cursor.execute('''
+                    SELECT role FROM group_members 
+                    WHERE group_id = ? AND user_id = ?
+                ''', (group_id, user_id))
+                result = cursor.fetchone()
+                
+                if not result or result[0] not in ('owner', 'admin'):
+                    return {'error': 'Недостаточно прав для изменения названия'}
+                
+                # Проверяем уникальность имени
+                cursor.execute('''
+                    SELECT 1 FROM groups 
+                    WHERE name = ? AND group_id != ?
+                ''', (new_name, group_id))
+                if cursor.fetchone():
+                    return {'error': 'Группа с таким именем уже существует'}
+                
+                # Обновляем название
+                cursor.execute('''
+                    UPDATE groups 
+                    SET name = ? 
+                    WHERE group_id = ?
+                ''', (new_name, group_id))
+                
+                cursor.connection.commit()
+                return {'status': 'success'}
+                
+        except Exception as e:
+            logging.error(f"Rename group error: {str(e)}")
+            return {'error': 'Ошибка сервера'}
+
+    @staticmethod
+    def leave_group(group_id: int, user_id: int) -> dict:
+        """
+        Покидает группу (для обычных участников) или удаляет группу (для владельца)
+        Возвращает {status: 'success', is_group_deleted: bool} или {error: 'message'}
+        """
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute('BEGIN TRANSACTION')
+                
+                # Проверяем роль пользователя
+                cursor.execute('''
+                    SELECT role, username FROM group_members
+                    JOIN users ON group_members.user_id = users.id
+                    WHERE group_id = ? AND user_id = ?
+                ''', (group_id, user_id))
+                result = cursor.fetchone()
+                
+                if not result:
+                    return {'error': 'User not in group'}
+                
+                role, username = result
+                
+                if role == 'owner':
+                    # Удаляем группу полностью
+                    cursor.execute('DELETE FROM group_members WHERE group_id = ?', (group_id,))
+                    cursor.execute('DELETE FROM groups WHERE group_id = ?', (group_id,))
+                    is_group_deleted = True
+                    action_message = f'Группа удалена владельцем {username}'
+                else:
+                    # Просто удаляем участника
+                    cursor.execute('''
+                        DELETE FROM group_members 
+                        WHERE group_id = ? AND user_id = ?
+                    ''', (group_id, user_id))
+                    is_group_deleted = False
+                    action_message = f'Пользователь {username} покинул группу'
+                
+                # Добавляем системное сообщение
+                cursor.execute('''
+                    INSERT INTO group_messages 
+                    (group_id, user_id, message_text, timestamp)
+                    VALUES (?, 0, ?, ?)
+                ''', (group_id, action_message, int(datetime.now().timestamp())          ))
+                
+                cursor.connection.commit()
+                return {'status': 'success', 'is_group_deleted': is_group_deleted}
+                
+        except Exception as e:
+            cursor.connection.rollback()
+            logging.error(f"Leave group error: {str(e)}")
+            return {'error': 'Internal Server Error'}
