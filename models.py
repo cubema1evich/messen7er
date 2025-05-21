@@ -592,6 +592,14 @@ class MessageModel:
         
 class UserModel:
     @staticmethod
+    def get_user_id(username: str) -> Optional[int]:
+        """Получает ID пользователя по имени"""
+        with get_db_cursor() as cursor:
+            cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
+            result = cursor.fetchone()
+            return result[0] if result else None
+
+    @staticmethod
     def create_user(username: str, password: str) -> tuple:
         """
         Создает нового пользователя
