@@ -10,19 +10,6 @@ from .base import View, json_response
 
 
 class GetUserIdView(View):
-    def fetch_user_id_from_database(self, username):
-        connection = sqlite3.connect('data.db')
-        cursor = connection.cursor()
-
-        cursor.execute("SELECT user_id FROM users WHERE username=?", (username,))
-        
-        user_id = cursor.fetchone()
-
-        cursor.close()
-        connection.close()
-
-        return user_id[0] if user_id else None
-
     def response(self, environ, start_response):
         try:
             request = Request(environ)
