@@ -18,42 +18,17 @@ class GetGroupMembersView(View):
         if not user_id:
             return forbidden_response(start_response)
 
-        with get_db_cursor() as cursor:
-            # Проверяем что пользователь состоит в группе
-            cursor.execute('''
-                SELECT 1 FROM group_members 
-                WHERE group_id = ? AND user_id = ?
-            ''', (group_id, user_id))
-            
-            if not cursor.fetchone():
-                return json_response(
-                    {'error': 'Not a group member'}, 
-                    start_response, 
-                    '403 Forbidden'
-                )
-            
-            # Получаем участников с ролями
-            cursor.execute('''
-                SELECT u.username, gm.role, gm.joined_at
-                FROM group_members gm
-                JOIN users u ON gm.user_id = u.id
-                WHERE gm.group_id = ?
-                ORDER BY 
-                    CASE gm.role 
-                        WHEN 'owner' THEN 1
-                        WHEN 'admin' THEN 2
-                        ELSE 3
-                    END,
-                    gm.joined_at
-            ''', (group_id,))
-            
-            members = [{
-                'username': row[0],
-                'role': row[1],
-                'joined_at': row[2]
-            } for row in cursor.fetchall()]
-            
-            return json_response({'members': members}, start_response)
+        # Проверяем доступ к группе
+        if not GroupModel.check_group_access(group_id, user_id):
+            return json_response(
+                {'error': 'Not a group member'}, 
+                start_response, 
+                '403 Forbidden'
+            )
+        
+        # Получаем участников через модель
+        members = GroupModel.get_group_members(group_id)
+        return json_response({'members': members}, start_response)
 
 class LeaveGroupView(View):
     def response(self, environ, start_response):
