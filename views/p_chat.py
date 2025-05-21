@@ -9,6 +9,7 @@ import hashlib
 import re
 
 from webob import Request
+from models import *
 
 from utils import *
 from .base import View, json_response, forbidden_response
@@ -22,25 +23,7 @@ class GetPrivateChatsView(View):
             if not user_id:
                 return forbidden_response(start_response)
 
-            with get_db_cursor() as cursor:
-
-                cursor.execute('''
-                    SELECT DISTINCT u.username, 
-                           (SELECT MAX(timestamp) FROM private_messages 
-                            WHERE (sender_id = ? AND receiver_id = u.id) 
-                               OR (sender_id = u.id AND receiver_id = ?)) as last_activity
-                    FROM users u
-                    JOIN private_messages pm ON (pm.sender_id = u.id OR pm.receiver_id = u.id)
-                    WHERE (pm.sender_id = ? OR pm.receiver_id = ?)
-                    AND u.id != ?
-                    ORDER BY last_activity DESC
-                ''', (user_id, user_id, user_id, user_id, user_id))
-                
-                chats = [{
-                    'username': row[0],
-                    'last_activity': row[1] or 0
-                } for row in cursor.fetchall()]
-
+            chats = MessageModel.get_private_chats(user_id)
             return json_response({'chats': chats}, start_response)
             
         except Exception as e:
