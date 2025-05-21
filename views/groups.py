@@ -45,76 +45,29 @@ class LeaveGroupView(View):
 
             content_length = int(environ.get('CONTENT_LENGTH', 0))
             post_data = json.loads(environ['wsgi.input'].read(content_length))
+            
             group_id = post_data.get('group_id')
 
-            with get_db_cursor() as cursor:
-                try:
-                    cursor.execute('BEGIN TRANSACTION')
-                    
-                    # Проверяем роль пользователя
-                    cursor.execute('''
-                        SELECT role, username FROM group_members
-                        JOIN users ON group_members.user_id = users.id
-                        WHERE group_id = ? AND user_id = ?
-                    ''', (group_id, user_id))
-                    result = cursor.fetchone()
-                    
-                    if not result:
-                        return json_response(
-                            {'error': 'User not in group'}, 
-                            start_response, 
-                            '400 Bad Request'
-                        )
-                    
-                    role, username = result
-                    
-                    # Если это владелец - удаляем группу
-                    if role == 'owner':
-                        # Удаляем всех участников
-                        cursor.execute('''
-                            DELETE FROM group_members WHERE group_id = ?
-                        ''', (group_id,))
-                        
-                        # Удаляем группу
-                        cursor.execute('''
-                            DELETE FROM groups WHERE group_id = ?
-                        ''', (group_id,))
-                        
-                        # Добавляем системное сообщение
-                        cursor.execute('''
-                            INSERT INTO group_messages 
-                            (group_id, user_id, message_text, timestamp)
-                            VALUES (?, 0, ?, ?)
-                        ''', (group_id, f'Группа удалена владельцем {username}', int(time.time())))
-                    else:
-                        # Просто удаляем пользователя
-                        cursor.execute('''
-                            DELETE FROM group_members 
-                            WHERE group_id = ? AND user_id = ?
-                        ''', (group_id, user_id))
-                        
-                        # Добавляем системное сообщение
-                        cursor.execute('''
-                            INSERT INTO group_messages 
-                            (group_id, user_id, message_text, timestamp)
-                            VALUES (?, 0, ?, ?)
-                        ''', (group_id, f'Пользователь {username} покинул группу', int(time.time())))
-                    
-                    cursor.connection.commit()
-                    
-                    return json_response(
-                        {'status': 'success'}, 
-                        start_response
-                    )
-                
-                except Exception as e:
-                    cursor.connection.rollback()
-                    logging.error(f"LeaveGroup error: {str(e)}")
-                    return json_response(
-                        {'error': 'Internal Server Error'}, 
-                        start_response, 
-                        '500 Internal Server Error'
-                    )
+            if not group_id:
+                return json_response(
+                    {'error': 'Group ID is required'}, 
+                    start_response, 
+                    '400 Bad Request'
+                )
+
+            result = GroupModel.leave_group(
+                group_id=group_id,
+                user_id=user_id
+            )
+            
+            if 'error' in result:
+                return json_response(result, start_response, '400 Bad Request')
+            
+            return json_response({
+                'status': 'success',
+                'is_group_deleted': result['is_group_deleted']
+            }, start_response)
+            
         except Exception as e:
             logging.error(f"LeaveGroup error: {str(e)}")
             return json_response(
