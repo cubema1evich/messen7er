@@ -87,13 +87,21 @@ class MessageModel:
         
         Args:
             user_id: ID текущего пользователя
-            other_user_id: ID собеседника
+            other_user_id: ID или username собеседника
             timestamp: Временная метка для фильтрации сообщений
             
         Returns:
-            Список сообщений с вложениями
+            Список сообщений с правильными полями sender и message_text
         """
         with get_db_cursor() as cursor:
+            # Сначала получаем ID собеседника, если передан username
+            if isinstance(other_user_id, str):
+                cursor.execute("SELECT id FROM users WHERE username = ?", (other_user_id,))
+                other_user = cursor.fetchone()
+                if not other_user:
+                    return []
+                other_user_id = other_user[0]
+
             cursor.execute('''
                 SELECT 
                     pm.id,
@@ -113,7 +121,27 @@ class MessageModel:
                 ORDER BY pm.timestamp ASC
             ''', [user_id, other_user_id, other_user_id, user_id, timestamp])
             
-            return MessageModel._process_messages(cursor)
+            messages = defaultdict(dict)
+            
+            for row in cursor.fetchall():
+                msg_id = row[0]
+                if msg_id not in messages:
+                    messages[msg_id] = {
+                        'id': msg_id,
+                        'sender': row[2],
+                        'message_text': row[1],
+                        'timestamp': row[3],
+                        'attachments': []
+                    }
+                
+                if row[4]:
+                    messages[msg_id]['attachments'].append({
+                        'path': row[4],
+                        'mime_type': row[5],
+                        'filename': row[6]
+                    })
+                    
+            return list(messages.values())
 
     @staticmethod
     def _process_messages(cursor) -> List[Dict]:
