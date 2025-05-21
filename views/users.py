@@ -3,9 +3,8 @@ import json
 import time
 import logging
 
-
 from webob import Request
-
+from models import *
 from utils import *
 from .base import View, json_response
 
@@ -114,22 +113,8 @@ class ChangeMemberRoleView(View):
                     '400 Bad Request'
                 )
 
+            # Получаем ID целевого пользователя
             with get_db_cursor() as cursor:
-                # Проверяем права текущего пользователя
-                cursor.execute('''
-                    SELECT role FROM group_members 
-                    WHERE group_id = ? AND user_id = ?
-                ''', (group_id, user_id))
-                current_user_role = cursor.fetchone()
-                
-                if not current_user_role or current_user_role[0] not in ['owner', 'admin']:
-                    return json_response(
-                        {'error': 'Недостаточно прав'}, 
-                        start_response, 
-                        '403 Forbidden'
-                    )
-                
-                # Получаем ID целевого пользователя
                 cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
                 target_user = cursor.fetchone()
                 if not target_user:
@@ -140,72 +125,41 @@ class ChangeMemberRoleView(View):
                     )
                 
                 target_user_id = target_user[0]
-                
-                # Проверяем что не пытаемся изменить себя
-                if target_user_id == user_id and new_role != 'owner':
-                    return json_response(
-                        {'error': 'Нельзя изменить свою роль'}, 
-                        start_response, 
-                        '400 Bad Request'
-                    )
-                
-                # Проверяем текущую роль целевого пользователя
-                cursor.execute('''
-                    SELECT role FROM group_members 
-                    WHERE group_id = ? AND user_id = ?
-                ''', (group_id, target_user_id))
-                target_current_role = cursor.fetchone()
-                
-                if not target_current_role:
-                    return json_response(
-                        {'error': 'User not in group'}, 
-                        start_response, 
-                        '400 BadRequest'
-                    )
-                
-                # Только владелец может назначать владельца
-                if new_role == 'owner' and current_user_role[0] != 'owner':
-                    return json_response(
-                        {'error': 'Только владелец может передавать права'}, 
-                        start_response, 
-                        '403 Forbidden'
-                    )
-                
-                # Обновляем роль
-                cursor.execute('''
-                    UPDATE group_members 
-                    SET role = ?
-                    WHERE group_id = ? AND user_id = ?
-                ''', (new_role, group_id, target_user_id))
-                
-                # Если передаем владение, меняем свою роль на admin
-                if new_role == 'owner':
-                    cursor.execute('''
-                        UPDATE group_members 
-                        SET role = 'admin'
-                        WHERE group_id = ? AND user_id = ?
-                    ''', (group_id, user_id))
-                
-                # Добавляем системное сообщение
-                role_names = {
-                    'owner': 'владельцем',
-                    'admin': 'администратором',
-                    'member': 'участником'
-                }
-                
-                cursor.execute('''
-                    INSERT INTO group_messages 
-                    (group_id, user_id, message_text, timestamp)
-                    VALUES (?, 0, ?, ?)
-                ''', (group_id, f'Пользователь {username} назначен {role_names[new_role]}', int(time.time())))
-                
-                cursor.connection.commit()
-                
-                return json_response({
-                    'status': 'success',
-                    'new_role': new_role
-                }, start_response)
-                
+
+            # Меняем роль через модель
+            result = GroupModel.change_role(
+                group_id=group_id,
+                user_id=target_user_id,
+                new_role=new_role,
+                changer_id=user_id
+            )
+            
+            if 'error' in result:
+                return json_response(
+                    {'error': result['error']}, 
+                    start_response, 
+                    '403 Forbidden' if 'Недостаточно прав' in result['error'] else '500 Internal Server Error'
+                )
+            
+            # Добавляем системное сообщение
+            role_names = {
+                'owner': 'владельцем',
+                'admin': 'администратором',
+                'member': 'участником'
+            }
+            MessageModel.create_message(
+                message_type='group',
+                user_id=0,  # System
+                message_text=f'Пользователь {username} назначен {role_names[new_role]}',
+                group_id=group_id
+            )
+            
+            return json_response({
+                'status': 'success',
+                'new_role': new_role,
+                'role_name': role_names[new_role]
+            }, start_response)
+            
         except Exception as e:
             logging.error(f"ChangeMemberRole error: {str(e)}")
             return json_response(
