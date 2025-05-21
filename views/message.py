@@ -12,9 +12,11 @@ from urllib.parse import parse_qs
 from mimes import get_mime
 from webob import Request
 from werkzeug.utils import secure_filename
+from models import *
 
 from utils import *
 from .base import View, json_response, forbidden_response
+
 
 class GetMessageView(View):
     def response(self, environ, start_response):
@@ -23,8 +25,8 @@ class GetMessageView(View):
             query_params = parse_qs(environ.get('QUERY_STRING', ''))
             timestamp = self._parse_timestamp(query_params)
             
-            with get_db_cursor() as cursor:
-                messages = self._fetch_messages(cursor, timestamp)
+            # Получаем сообщения из модели
+            messages = MessageModel.get_general_messages(timestamp)
                 
             return json_response({
                 'messages': messages,
@@ -47,67 +49,10 @@ class GetMessageView(View):
         except (ValueError, TypeError):
             raise ValueError("Invalid timestamp format")
 
-    def _fetch_messages(self, cursor, timestamp):
-        cursor.execute('''
-            SELECT 
-                m.message_id,
-                m.sender,
-                m.message_text,
-                m.timestamp,
-                a.file_path,
-                a.mime_type,
-                a.filename,
-                'general' as type
-            FROM messages m
-            LEFT JOIN attachments a ON a.message_id = m.message_id AND a.message_type = 'general'
-            WHERE m.timestamp > ?
-            ORDER BY m.timestamp
-        ''', (timestamp,))
-        
-        messages = {}
-        for row in cursor.fetchall():
-            msg_id = row[0]
-            if msg_id not in messages:
-                messages[msg_id] = {
-                    'id': msg_id,
-                    'sender': row[1],
-                    'message_text': row[2],
-                    'timestamp': row[3],
-                    'attachments': []
-                }
-            
-            if row[4]:  # Если есть вложение
-                messages[msg_id]['attachments'].append({
-                    'path': row[4],
-                    'mime_type': row[5],
-                    'filename': row[6]
-                })
-                
-        return list(messages.values())
-
     def _get_new_timestamp(self, messages, old_timestamp):
         if messages:
             return max(msg['timestamp'] for msg in messages)
         return old_timestamp
-
-    def get_new_messages_from_db(self, timestamp):
-        """Устаревший метод, рекомендуется использовать response"""
-        try:
-            with get_db_cursor() as cursor:
-                messages = self._fetch_messages(cursor, timestamp)
-                
-            return (
-                [{
-                    'sender': msg['sender'],
-                    'message_text': msg['message_text'],
-                    'timestamp': msg['timestamp'],
-                    'attachments': msg['attachments']
-                } for msg in messages],
-                self._get_new_timestamp(messages, timestamp)
-            )
-        except Exception as e:
-            logging.error(f"get_new_messages_from_db error: {str(e)}")
-            return [], timestamp
 
 class SendMessageView(View):
     def response(self, environ, start_response):
@@ -115,8 +60,6 @@ class SendMessageView(View):
             request = Request(environ)
             user_id = request.cookies.get('user_id')
 
-            
-            
             if not user_id:
                 return forbidden_response(start_response)
 
@@ -498,55 +441,13 @@ class GetGroupMessagesView(View):
             if not user_id:
                 return forbidden_response(start_response)
 
-            with get_db_cursor() as cursor:
-                cursor.execute('''
-                    SELECT 
-                        gm.message_id,
-                        CASE 
-                            WHEN gm.user_id = 0 THEN 'System'
-                            ELSE u.username
-                        END as sender,
-                        gm.message_text,
-                        gm.timestamp,
-                        a.file_path,
-                        a.mime_type,
-                        a.filename,
-                        'group' as type,
-                        gm.user_id
-                    FROM group_messages gm
-                    LEFT JOIN users u ON gm.user_id = u.id
-                    LEFT JOIN attachments a 
-                        ON a.message_id = gm.message_id 
-                        AND a.message_type = 'group'
-                    WHERE gm.group_id = ? AND gm.timestamp > ?
-                    ORDER BY gm.timestamp
-                ''', (group_id, timestamp))
+            # Получаем сообщения из модели
+            messages = MessageModel.get_group_messages(group_id, timestamp)
                 
-                messages = {}
-                for row in cursor.fetchall():
-                    msg_id = row[0]
-                    if msg_id not in messages:
-                        messages[msg_id] = {
-                            'id': msg_id,
-                            'sender': row[1],
-                            'message_text': row[2],
-                            'timestamp': row[3],
-                            'type': row[7],
-                            'user_id': row[8],
-                            'attachments': []
-                        }
-                    
-                    if row[4]:  # Если есть вложение
-                        messages[msg_id]['attachments'].append({
-                            'path': row[4],
-                            'mime_type': row[5],
-                            'filename': row[6]
-                        })
-                
-                return json_response({
-                    'messages': list(messages.values()),
-                    'timestamp': max([msg['timestamp'] for msg in messages.values()] or [timestamp])
-                }, start_response)
+            return json_response({
+                'messages': messages,
+                'timestamp': max([msg['timestamp'] for msg in messages] or [timestamp])
+            }, start_response)
 
         except Exception as e:
             logging.error(f"GetGroupMessages error: {str(e)}", exc_info=True)
