@@ -59,14 +59,14 @@ class SendMessageView(View):
         try:
             request = Request(environ)
             user_id = request.cookies.get('user_id')
-
+            
             if not user_id:
                 return forbidden_response(start_response)
 
             if request.content_type.startswith('multipart/form-data'):
                 post_data = request.POST
-                files = request.POST.getall('files')  # Получаем файлы
-                message = post_data.get('message', '').strip()  # Получаем текст
+                files = request.POST.getall('files')
+                message = post_data.get('message', '').strip()
             else:
                 return json_response(
                     {'error': 'Invalid content type'}, 
@@ -82,86 +82,58 @@ class SendMessageView(View):
             group_id = post_data.get('group_id')
             receiver = post_data.get('receiver')
 
+            # Определяем тип сообщения
+            if group_id:
+                message_type = 'group'
+            elif receiver:
+                message_type = 'private'
+            else:
+                message_type = 'general'
 
-            with get_db_cursor() as cursor:
-                cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
-                user = cursor.fetchone()
-                if not user:
-                    return forbidden_response(start_response)
-                username = user[0]
+            # Для приватных сообщений получаем ID получателя
+            receiver_id = None
+            if message_type == 'private':
+                with get_db_cursor() as cursor:
+                    cursor.execute('SELECT id FROM users WHERE username = ?', (receiver,))
+                    receiver_user = cursor.fetchone()
+                    if not receiver_user:
+                        return json_response(
+                            {'error': 'User not found'}, 
+                            start_response, 
+                            '404 Not Found'
+                        )
+                    receiver_id = receiver_user[0]
 
-                timestamp = int(time.time())
-                message_id = None
-                message_type = None
+            # Создаем сообщение в базе данных
+            message_id = MessageModel.create_message(
+                message_type=message_type,
+                user_id=user_id,
+                message_text=message,
+                group_id=group_id,
+                receiver_id=receiver_id
+            )
+            
+            if not message_id:
+                raise Exception("Failed to create message")
 
-                # Сохраняем сообщение только если есть текст ИЛИ файлы
-                if message or files:
-                    if group_id:
-                        # Групповое сообщение
-                        cursor.execute('''
-                            INSERT INTO group_messages 
-                            (group_id, user_id, message_text, timestamp)
-                            VALUES (?, ?, ?, ?)
-                        ''', (group_id, user_id, message, timestamp))
-                        message_type = 'group'
-                        message_id = cursor.lastrowid
-                        
-                    elif receiver:
-                        # Личное сообщение
-                        cursor.execute('SELECT id FROM users WHERE username = ?', (receiver,))
-                        receiver_user = cursor.fetchone()
-                        if not receiver_user:
-                            return json_response({'error': 'User not found'}, start_response, '404 Not Found')
-                            
-                        cursor.execute('''
-                            INSERT INTO private_messages 
-                            (sender_id, receiver_id, message_text, timestamp)
-                            VALUES (?, ?, ?, ?)
-                        ''', (user_id, receiver_user[0], message, timestamp))
-                        message_type = 'private'
-                        message_id = cursor.lastrowid
-                        
-                    else:
-                        # Общее сообщение
-                        cursor.execute('''
-                            INSERT INTO messages 
-                            (user_id, sender, message_text, timestamp)
-                            VALUES (?, ?, ?, ?)
-                        ''', (user_id, username, message, timestamp))
-                        message_type = 'general'
-                        message_id = cursor.lastrowid
-
-                    if files and message_id:
-                        unique_files = set()
-                        for file in files:
-                            if file.filename and file.file:
-                                file_content = file.file.read()
-                                file_hash = hashlib.md5(file_content).hexdigest()
-                                file.file.seek(0)  
-                                
-                                if file_hash in unique_files:
-                                    continue
-                                unique_files.add(file_hash)
-                                
-                                filename = secure_filename(file.filename)
-                                unique_name = f"{file_hash}_{filename}"
-                                file_path = os.path.join('static', 'uploads', unique_name)
-                                
-                                if not os.path.exists(file_path):
-                                    with open(file_path, 'wb') as f:
-                                        f.write(file_content)
-                                
-                                cursor.execute('''
-                                    INSERT INTO attachments 
-                                    (message_type, message_id, file_path, mime_type, filename)
-                                    VALUES (?, ?, ?, ?, ?)
-                                ''', (message_type, message_id, f'/static/uploads/{unique_name}', file.type, filename))
-                                
-                                if files and message_id and not unique_files:
-                                    cursor.connection.rollback()
-                                    return json_response({'error': 'No files to save'}, start_response, '400 Bad Request')
-
-                cursor.connection.commit()
+            # Обрабатываем файлы
+            if files:
+                unique_files = set()
+                upload_folder = os.path.join('static', 'uploads')
+                os.makedirs(upload_folder, exist_ok=True)
+                
+                for file in files:
+                    if file.filename and file.file:
+                        file_info = MessageModel.save_uploaded_file(file, upload_folder)
+                        if file_info and file_info['path'] not in unique_files:
+                            unique_files.add(file_info['path'])
+                            MessageModel.add_attachment(
+                                message_type=message_type,
+                                message_id=message_id,
+                                file_path=file_info['path'],
+                                mime_type=file_info['mime_type'],
+                                filename=file_info['filename']
+                            )
 
             return json_response({'status': 'success'}, start_response)
 
@@ -186,121 +158,32 @@ class DeleteMessageView(View):
             message_id = int(environ['url_params'][0])
             query = parse_qs(environ['QUERY_STRING'])
             message_type = query.get('type', ['general'])[0]
-
             user_id = self.get_user_id(environ)
+            
             if not user_id:
                 return forbidden_response(start_response)
 
-            table_info = {
-                'general': ('messages', 'message_id', 'user_id'),
-                'group': ('group_messages', 'message_id', 'user_id'),
-                'private': ('private_messages', 'id', 'sender_id')
-            }
-
-            if message_type not in table_info:
+            # Добавим логирование для отладки
+            logging.info(f"Attempt to delete message: type={message_type}, id={message_id}, user={user_id}")
+            
+            success = MessageModel.delete_message(
+                message_type=message_type,
+                message_id=message_id,
+                user_id=user_id
+            )
+            
+            if not success:
+                logging.warning(f"Delete failed: no permissions for user {user_id}")
                 return json_response(
-                    {'error': 'Invalid message type'}, 
+                    {'error': 'Недостаточно прав для удаления'}, 
                     start_response, 
-                    '400 Bad Request'
+                    '403 Forbidden'
                 )
 
-            table, id_col, user_col = table_info[message_type]
-
-            with get_db_cursor() as cursor:
-                # Для общего чата и личных сообщений проверяем, что это сообщение пользователя
-                if message_type in ['general', 'private']:
-                    cursor.execute(f'''
-                        SELECT {user_col} 
-                        FROM {table} 
-                        WHERE {id_col} = ?
-                    ''', (message_id,))
-                    message_owner = cursor.fetchone()
-                    
-                    if not message_owner:
-                        return json_response(
-                            {'error': 'Message not found'}, 
-                            start_response, 
-                            '404 Not Found'
-                        )
-                    
-                    if int(message_owner[0]) != user_id:
-                        return json_response(
-                            {'error': 'Недостаточно прав для удаления'}, 
-                            start_response, 
-                            '403 Forbidden'
-                        )
-
-                # Для групповых сообщений оставляем текущую логику проверки прав
-                if message_type == 'group':
-                    # Получаем group_id сообщения
-                    cursor.execute(f'''
-                        SELECT group_id FROM group_messages 
-                        WHERE message_id = ?
-                    ''', (message_id,))
-                    group_result = cursor.fetchone()
-                    
-                    if not group_result:
-                        return json_response(
-                            {'error': 'Message not found'}, 
-                            start_response, 
-                            '404 Not Found'
-                        )
-                    
-                    group_id = group_result[0]
-                    
-                    # Проверяем права пользователя
-                    cursor.execute('''
-                        SELECT role FROM group_members 
-                        WHERE group_id = ? AND user_id = ?
-                    ''', (group_id, user_id))
-                    role_result = cursor.fetchone()
-                    
-                    if not role_result:
-                        return json_response(
-                            {'error': 'Not a group member'}, 
-                            start_response, 
-                            '403 Forbidden'
-                        )
-                    
-                    role = role_result[0]
-                    
-                    # Если не админ, проверяем что это его сообщение
-                    if role not in ('owner', 'admin'):
-                        cursor.execute(f'''
-                            SELECT {user_col} 
-                            FROM {table} 
-                            WHERE {id_col} = ?
-                        ''', (message_id,))
-                        message_owner = cursor.fetchone()
-                        
-                        if not message_owner or int(message_owner[0]) != user_id:
-                            return json_response(
-                                {'error': 'Недостаточно прав'}, 
-                                start_response, 
-                                '403 Forbidden'
-                            )
-
-                # Удаляем сообщение
-                cursor.execute(f'''
-                    DELETE FROM {table} 
-                    WHERE {id_col} = ?
-                ''', (message_id,))
-
-                # Удаляем вложения
-                cursor.execute('''
-                    DELETE FROM attachments 
-                    WHERE message_type = ? 
-                    AND message_id = ?
-                ''', (message_type, message_id))
-
-                cursor.connection.commit()
-                return json_response(
-                    {'status': 'Сообщение удалено'}, 
-                    start_response
-                )
+            return json_response({'status': 'Сообщение удалено'}, start_response)
 
         except Exception as e:
-            logging.error(f"Ошибка удаления: {str(e)}")
+            logging.error(f"Ошибка удаления: {str(e)}", exc_info=True)
             return json_response(
                 {'error': 'Внутренняя ошибка сервера'}, 
                 start_response, 
@@ -308,35 +191,29 @@ class DeleteMessageView(View):
             )
         
 class EditMessageView(View):
+    def get_user_id(self, environ):
+        request = Request(environ)
+        try:
+            return int(request.cookies.get('user_id', 0))
+        except (ValueError, TypeError):
+            return 0
+
     def response(self, environ, start_response):
         try:
             message_id = int(environ['url_params'][0])
             query = parse_qs(environ['QUERY_STRING'])
             message_type = query.get('type', ['general'])[0]
-
-            if message_type not in ['general', 'group', 'private']:
-                return json_response(
-                    {'error': 'Неверный тип сообщения'},
-                    start_response,
-                    '400 Bad Request'
-                )
-
             user_id = self.get_user_id(environ)
+            
             if not user_id:
                 return forbidden_response(start_response)
 
-            table_map = {
-                'general': ('messages', 'message_id', 'user_id'),
-                'group': ('group_messages', 'message_id', 'user_id'),
-                'private': ('private_messages', 'id', 'sender_id')
-            }
-
-            table, id_col, user_col = table_map[message_type]
-
+            # Добавим логирование для отладки
+            logging.info(f"Attempt to edit message: type={message_type}, id={message_id}, user={user_id}")
+            
             content_length = int(environ.get('CONTENT_LENGTH', 0))
             data = json.loads(environ['wsgi.input'].read(content_length))
             new_text = data.get('message', '').strip()
-            new_timestamp = data.get('timestamp', int(time.time()))
             
             if not new_text:
                 return json_response(
@@ -345,55 +222,22 @@ class EditMessageView(View):
                     '400 Bad Request'
                 )
 
-            with get_db_cursor() as cursor:
-                # Для всех типов сообщений проверяем, что это сообщение пользователя
-                cursor.execute(f'''
-                    SELECT {user_col} 
-                    FROM {table} 
-                    WHERE {id_col} = ?
-                ''', (message_id,))
-                result = cursor.fetchone()
+            success = MessageModel.edit_message(
+                message_type=message_type,
+                message_id=message_id,
+                user_id=user_id,
+                new_text=new_text
+            )
+            
+            if not success:
+                logging.warning(f"Edit failed: no permissions for user {user_id}")
+                return json_response(
+                    {'error': 'Нет прав на редактирование'}, 
+                    start_response, 
+                    '403 Forbidden'
+                )
 
-                if not result:
-                    return json_response(
-                        {'error': 'Сообщение не найдено'}, 
-                        start_response, 
-                        '404 Not Found'
-                    )
-
-                if int(result[0]) != int(user_id):
-                    # Для групповых сообщений проверяем права администратора
-                    if message_type == 'group':
-                        cursor.execute('''
-                            SELECT role FROM group_members 
-                            WHERE group_id = (
-                                SELECT group_id FROM group_messages WHERE message_id = ?
-                            ) AND user_id = ?
-                        ''', (message_id, user_id))
-                        role_result = cursor.fetchone()
-                        
-                        if not role_result or role_result[0] not in ('owner', 'admin'):
-                            return json_response(
-                                {'error': 'Нет прав на редактирование'}, 
-                                start_response, 
-                                '403 Forbidden'
-                            )
-                    else:
-                        # Для общего чата и личных сообщений запрещаем редактирование чужих сообщений
-                        return json_response(
-                            {'error': 'Нет прав на редактирование'}, 
-                            start_response, 
-                            '403 Forbidden'
-                        )
-
-                cursor.execute(f'''
-                    UPDATE {table} 
-                    SET message_text = ?, timestamp = ?
-                    WHERE {id_col} = ?
-                ''', (new_text, new_timestamp, message_id))
-                
-                cursor.connection.commit()
-                return json_response({'status': 'Сообщение обновлено'}, start_response)
+            return json_response({'status': 'Сообщение обновлено'}, start_response)
 
         except Exception as e:
             logging.error(f"Ошибка редактирования: {str(e)}", exc_info=True)
@@ -402,10 +246,6 @@ class EditMessageView(View):
                 start_response, 
                 '500 Internal Server Error'
             )
-
-    def get_user_id(self, environ):
-        request = Request(environ)
-        return int(request.cookies.get('user_id', 0))
 
 class GetGroupMessagesView(View):
     def response(self, environ, start_response):
