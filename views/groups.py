@@ -200,33 +200,15 @@ class AddToGroupView(View):
             username = post_data.get('username')
             role = post_data.get('role', 'member')
 
+            if not all([group_id, username]):
+                return json_response(
+                    {'error': 'Missing parameters'}, 
+                    start_response, 
+                    '400 Bad Request'
+                )
+
+            # Получаем ID целевого пользователя
             with get_db_cursor() as cursor:
-                # Проверяем права текущего пользователя
-                cursor.execute('''
-                    SELECT role FROM group_members 
-                    WHERE group_id = ? AND user_id = ?
-                ''', (group_id, user_id))
-                current_user_role = cursor.fetchone()
-                
-                if not current_user_role:
-                    return json_response(
-                        {'error': 'Вы не состоите в этой группе', 'code': 'not_member'}, 
-                        start_response, 
-                        '403 Forbidden'
-                    )
-                
-                if current_user_role[0] not in ['owner', 'admin']:
-                    return json_response(
-                        {
-                            'error': 'Недостаточно прав для добавления участников',
-                            'code': 'insufficient_permissions',
-                            'required_role': 'admin'
-                        }, 
-                        start_response, 
-                        '403 Forbidden'
-                    )
-                
-                # Получаем ID целевого пользователя
                 cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
                 target_user = cursor.fetchone()
                 if not target_user:
@@ -238,73 +220,41 @@ class AddToGroupView(View):
                 
                 target_user_id = target_user[0]
                 
-                # Проверяем, что пользователь не пытается добавить самого себя
+                # Проверяем что пользователь не пытается добавить самого себя
                 if int(target_user_id) == int(user_id):
                     return json_response(
-                        {'error': 'Нельзя добавить самого себя в группу'}, 
+                        {'error': 'Cannot add yourself'}, 
                         start_response, 
                         '400 Bad Request'
                     )
 
-                # Проверяем существование группы
-                cursor.execute('SELECT name FROM groups WHERE group_id = ?', (group_id,))
-                group = cursor.fetchone()
-                if not group:
-                    return json_response(
-                        {'error': 'Group not found'}, 
-                        start_response, 
-                        '404 Not Found'
-                    )
-                
-                # Добавляем в группу
-                cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
-                target_user = cursor.fetchone()
-                if not target_user:
-                    return json_response(
-                        {'error': 'User not found'}, 
-                        start_response, 
-                        '404 Not Found'
-                    )
-                
-                target_user_id = target_user[0]
-                
-                # Проверяем, что не пытаемся изменить права владельца
-                if target_user_id == user_id and role != 'owner':
-                    return json_response(
-                        {'error': 'Нельзя изменить свои права'}, 
-                        start_response, 
-                        '400 Bad Request'
-                    )
-                
-                try:
-                    timestamp = int(time.time())
-                    cursor.execute('''
-                        INSERT OR REPLACE INTO group_members 
-                        (group_id, user_id, role, joined_at)
-                        VALUES (?, ?, ?, ?)
-                    ''', (group_id, target_user_id, role, timestamp))
-                    
-                    # Добавляем системное сообщение
-                    cursor.execute('''
-                        INSERT INTO group_messages 
-                        (group_id, user_id, message_text, timestamp)
-                        VALUES (?, 0, ?, ?)
-                    ''', (group_id, f'Пользователь {username} добавлен в группу! 🎉', timestamp))
-                    
-                    cursor.connection.commit()
-                    
-                    return json_response({
-                        'status': 'success',
-                        'group_id': group_id,
-                        'group_name': group[0],
-                    }, start_response)
-                    
-                except sqlite3.IntegrityError:
-                    return json_response(
-                        {'error': 'User already in group'}, 
-                        start_response, 
-                        '400 Bad Request'
-                    )
+            # Добавляем через модель
+            result = GroupModel.add_member(
+                group_id=group_id,
+                user_id=target_user_id,
+                role=role
+            )
+            
+            if 'error' in result:
+                return json_response(
+                    {'error': result['error']}, 
+                    start_response, 
+                    '400 Bad Request' if result['error'] == 'User already in group' else '500 Internal Server Error'
+                )
+            
+            # Добавляем системное сообщение
+            MessageModel.create_message(
+                message_type='group',
+                user_id=0,  # System
+                message_text=f'Пользователь {username} добавлен в группу!',
+                group_id=group_id
+            )
+            
+            return json_response({
+                'status': 'success',
+                'message': f'User {username} added successfully'
+            }, start_response)
+            
         except Exception as e:
             logging.error(f"AddToGroup error: {str(e)}")
             return json_response(
