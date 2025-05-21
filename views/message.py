@@ -319,8 +319,8 @@ class GetPrivateMessagesView(View):
                     '400 Bad Request'
                 )
 
+            # Получаем ID собеседника через UserModel
             with get_db_cursor() as cursor:
-                # Получаем ID собеседника
                 cursor.execute('SELECT id FROM users WHERE username = ?', (other_user,))
                 result = cursor.fetchone()
                 if not result:
@@ -332,59 +332,18 @@ class GetPrivateMessagesView(View):
                 
                 other_user_id = result[0]
                 
-                cursor.execute('''
-                    SELECT 
-                        pm.id,
-                        pm.message_text,
-                        u_sender.username as sender,
-                        pm.timestamp,
-                        a.file_path,
-                        a.mime_type,
-                        a.filename,
-                        pm.sender_id
-                    FROM private_messages pm
-                    JOIN users u_sender ON pm.sender_id = u_sender.id
-                    LEFT JOIN attachments a ON a.message_id = pm.id AND a.message_type = 'private'
-                    WHERE ((pm.sender_id = ? AND pm.receiver_id = ?)
-                    OR (pm.sender_id = ? AND pm.receiver_id = ?))
-                    AND pm.timestamp > ?
-                    ORDER BY pm.timestamp ASC
-                ''', [user_id, other_user_id, other_user_id, user_id, timestamp])
-                
-                messages = []
-                current_msg_id = None
-                current_msg = None
-                
-                for row in cursor.fetchall():
-                    msg_id = row[0]
-                    if msg_id != current_msg_id:
-                        if current_msg:
-                            messages.append(current_msg)
-                        current_msg = {
-                            'id': msg_id,
-                            'sender': row[2],
-                            'message_text': row[1],
-                            'timestamp': row[3],
-                            'attachments': []
-                        }
-                        current_msg_id = msg_id
-                    
-                    if row[4]:  # Если есть вложение
-                        current_msg['attachments'].append({
-                            'path': row[4],
-                            'mime_type': row[5],
-                            'filename': row[6]
-                        })
-                
-                if current_msg:
-                    messages.append(current_msg)
-
-                new_timestamp = max([msg['timestamp'] for msg in messages]) if messages else timestamp
-                
-                return json_response({
-                    'messages': messages,
-                    'timestamp': new_timestamp
-                }, start_response)
+            messages = MessageModel.get_private_messages(
+                user_id=user_id,
+                other_user_id=other_user_id,
+                timestamp=timestamp
+            )
+            
+            new_timestamp = max([msg['timestamp'] for msg in messages]) if messages else timestamp
+            
+            return json_response({
+                'messages': messages,
+                'timestamp': new_timestamp
+            }, start_response)
 
         except Exception as e:
             print(f"Error in private messages: {str(e)}")
