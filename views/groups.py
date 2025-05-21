@@ -136,25 +136,21 @@ class AddToGroupView(View):
                 )
 
             # Получаем ID целевого пользователя
-            with get_db_cursor() as cursor:
-                cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
-                target_user = cursor.fetchone()
-                if not target_user:
-                    return json_response(
-                        {'error': 'User not found'}, 
-                        start_response, 
-                        '404 Not Found'
-                    )
+            target_user_id = UserModel.get_user_id(username)
+            if not target_user_id:
+                return json_response(
+                    {'error': 'User not found'}, 
+                    start_response, 
+                    '404 Not Found'
+                )
                 
-                target_user_id = target_user[0]
-                
-                # Проверяем что пользователь не пытается добавить самого себя
-                if int(target_user_id) == int(user_id):
-                    return json_response(
-                        {'error': 'Cannot add yourself'}, 
-                        start_response, 
-                        '400 Bad Request'
-                    )
+            # Проверяем что пользователь не пытается добавить самого себя
+            if int(target_user_id) == int(user_id):
+                return json_response(
+                    {'error': 'Cannot add yourself'}, 
+                    start_response, 
+                    '400 Bad Request'
+                )
 
             # Добавляем через модель
             result = GroupModel.add_member(
@@ -381,19 +377,14 @@ class RemoveFromGroupView(View):
                 )
 
             # Получаем ID целевого пользователя
-            with get_db_cursor() as cursor:
-                cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
-                target_user = cursor.fetchone()
-                if not target_user:
-                    return json_response(
-                        {'error': 'User not found'}, 
-                        start_response, 
-                        '404 Not Found'
-                    )
-                
-                target_user_id = target_user[0]
+            target_user_id = UserModel.get_user_id(username)
+            if not target_user_id:
+                return json_response(
+                    {'error': 'User not found'}, 
+                    start_response, 
+                    '404 Not Found'
+                )
 
-            # Удаляем через модель
             result = GroupModel.remove_member(
                 group_id=group_id,
                 user_id=target_user_id,

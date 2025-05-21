@@ -107,19 +107,14 @@ class ChangeMemberRoleView(View):
                 )
 
             # Получаем ID целевого пользователя
-            with get_db_cursor() as cursor:
-                cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
-                target_user = cursor.fetchone()
-                if not target_user:
-                    return json_response(
-                        {'error': 'User not found'}, 
-                        start_response, 
-                        '404 Not Found'
-                    )
-                
-                target_user_id = target_user[0]
+            target_user_id = UserModel.get_user_id(username)
+            if not target_user_id:
+                return json_response(
+                    {'error': 'User not found'}, 
+                    start_response, 
+                    '404 Not Found'
+                )
 
-            # Меняем роль через модель
             result = GroupModel.change_role(
                 group_id=group_id,
                 user_id=target_user_id,

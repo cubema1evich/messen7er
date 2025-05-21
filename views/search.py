@@ -65,14 +65,13 @@ class SearchMessagesView(View):
             
             # Для приватных чатов проверяем существование собеседника
             if message_type == 'private' and chat_id:
-                with get_db_cursor() as cursor:
-                    cursor.execute("SELECT id FROM users WHERE username = ?", (chat_id,))
-                    if not cursor.fetchone():
-                        return json_response(
-                            {'error': 'User not found'}, 
-                            start_response, 
-                            '404 Not Found'
-                        )
+                partner_id = UserModel.get_user_id(chat_id)
+                if not partner_id:
+                    return json_response(
+                        {'error': 'User not found'}, 
+                        start_response, 
+                        '404 Not Found'
+                    )
             
             # Для групповых чатов проверяем доступ
             if message_type == 'group' and chat_id:

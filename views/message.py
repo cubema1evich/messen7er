@@ -375,15 +375,13 @@ class SendPrivateMessageView(View):
                     '400 Bad Request'
                 )
 
-            with get_db_cursor() as cursor:
-                cursor.execute('SELECT id FROM users WHERE username = ?', (receiver,))
-                result = cursor.fetchone()
-                if not result:
-                    return json_response(
-                        {'error': 'User not found'}, 
-                        start_response, 
-                        '404 Not Found'
-                    )
+            receiver_id = UserModel.get_user_id(receiver)
+            if not receiver_id:
+                return json_response(
+                    {'error': 'User not found'}, 
+                    start_response, 
+                    '404 Not Found'
+                )
                 
                 receiver_id = result[0]
 
