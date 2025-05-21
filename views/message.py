@@ -362,7 +362,6 @@ class SendPrivateMessageView(View):
             if not user_id:
                 return forbidden_response(start_response)
 
-            # Правильное чтение тела запроса
             content_length = int(environ.get('CONTENT_LENGTH', 0))
             post_data = json.loads(environ['wsgi.input'].read(content_length))
             
@@ -377,11 +376,7 @@ class SendPrivateMessageView(View):
                 )
 
             with get_db_cursor() as cursor:
-                # Получаем ID получателя
-                cursor.execute(
-                    'SELECT id FROM users WHERE username = ?',
-                    (receiver,)
-                )
+                cursor.execute('SELECT id FROM users WHERE username = ?', (receiver,))
                 result = cursor.fetchone()
                 if not result:
                     return json_response(
@@ -391,17 +386,18 @@ class SendPrivateMessageView(View):
                     )
                 
                 receiver_id = result[0]
-                timestamp = int(time.time())
 
-                # Сохраняем сообщение
-                cursor.execute('''
-                    INSERT INTO private_messages 
-                    (sender_id, receiver_id, message_text, timestamp)
-                    VALUES (?, ?, ?, ?)
-                ''', (user_id, receiver_id, message, timestamp))
+            message_id = MessageModel.create_message(
+                message_type='private',
+                user_id=user_id,
+                message_text=message,
+                receiver_id=receiver_id
+            )
+            
+            if not message_id:
+                raise Exception("Failed to create private message")
                 
-                cursor.connection.commit()
-                return json_response({'status': 'success'}, start_response)
+            return json_response({'status': 'success'}, start_response)
 
         except Exception as e:
             print(f"Error in private message: {str(e)}")
