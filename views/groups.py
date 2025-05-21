@@ -3,6 +3,7 @@ import json
 import time
 import logging
 
+from models import *
 from webob import Request
 from .base import json_response, forbidden_response, View
 from utils import *
@@ -149,9 +150,6 @@ class LeaveGroupView(View):
 
 class CreateGroupView(View):
     def response(self, environ, start_response):
-        """
-        Генерирует HTTP-ответ для создания группы.
-        """
         try:
             request = Request(environ)
             user_id = request.cookies.get('user_id')
@@ -166,35 +164,13 @@ class CreateGroupView(View):
                     '400 Bad Request'
                 )
 
-            with get_db_cursor() as cursor:
-                cursor.execute('SELECT group_id FROM groups WHERE name = ?', (group_name,))
-                if cursor.fetchone():
-                    return json_response(
-                        {'error': 'Группа с таким именем уже существует'},
-                        start_response,
-                        '400 Bad Request'
-                    )
-                
-                # Создаем группу
-                timestamp = int(time.time())
-                cursor.execute('''
-                    INSERT INTO groups (name, creator_id, created_at)
-                    VALUES (?, ?, ?)
-                ''', (group_name, user_id, timestamp))
-                
-                group_id = cursor.lastrowid
-                
-                # Добавляем создателя как владельца
-                cursor.execute('''
-                    INSERT INTO group_members (group_id, user_id, role, joined_at)
-                    VALUES (?, ?, ?, ?)
-                ''', (group_id, user_id, 'owner', timestamp))
-                
-                cursor.connection.commit()
-                return json_response(
-                    {'status': 'success', 'group_id': group_id}, 
-                    start_response
-                )
+            result = GroupModel.create_group(group_name, user_id)
+            
+            if 'error' in result:
+                status_code = '400 Bad Request' if 'уже существует' in result['error'] else '500 Internal Server Error'
+                return json_response(result, start_response, status_code)
+            
+            return json_response(result, start_response)
             
         except Exception as e:
             logging.error(f"Error creating group: {str(e)}", exc_info=True)
@@ -344,22 +320,8 @@ class GetGroupsView(View):
         if not user_id:
             return forbidden_response(start_response)
 
-        with get_db_cursor() as cursor:
-            cursor.execute('''
-                SELECT g.group_id, g.name, gm.role
-                FROM groups g
-                JOIN group_members gm ON g.group_id = gm.group_id
-                WHERE gm.user_id = ?
-                ORDER BY g.name
-            ''', (user_id,))
-            
-            groups = [{
-                'id': row[0],
-                'name': row[1],
-                'role': row[2]
-            } for row in cursor.fetchall()]
-            
-            return json_response(groups, start_response)
+        groups = GroupModel.get_user_groups(user_id)
+        return json_response(groups, start_response)
 
 class CheckGroupAccessView(View):
     def response(self, environ, start_response):
