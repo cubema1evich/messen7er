@@ -37,33 +37,26 @@ class GetUserIdView(View):
             except (ValueError, TypeError):
                 return json_response({'error': 'Invalid user_id format'}, start_response, '400 Bad Request')
 
-            with get_db_cursor() as cursor:
-                # Получаем username по user_id
-                cursor.execute("SELECT username FROM users WHERE id = ?", (user_id,))
-                user = cursor.fetchone()
+            # Используем UserModel вместо прямого запроса
+            user = UserModel.get_user_by_id(user_id)
+            if not user:
+                return json_response({'error': 'User not found'}, start_response, '404 Not Found')
                 
-                if not user:
-                    return json_response({'error': 'User not found'}, start_response, '404 Not Found')
-                
-                # Возвращаем и user_id и username для удобства
-                response_data = {
-                    'user_id': user_id,
-                    'username': user[0]
-                }
-                
-                headers = [
-                    ('Content-Type', 'application/json'),
-                    ('Access-Control-Allow-Origin', 'http://localhost:8000'),
-                    ('Access-Control-Allow-Credentials', 'true'),
-                    ('Set-Cookie', f'user_id={user_id}; Path=/; HttpOnly; SameSite=Lax')
-                ]
-                
-                start_response('200 OK', headers)
-                return [json.dumps(response_data).encode('utf-8')]
-                request = Request(environ)
-            if not request.cookies.get('user_id'):
-                return json_response({'error': 'Not authorized'}, start_response, '401 Unauthorized')
-                
+            response_data = {
+                'user_id': user_id,
+                'username': user['username']
+            }
+            
+            headers = [
+                ('Content-Type', 'application/json'),
+                ('Access-Control-Allow-Origin', 'http://localhost:8000'),
+                ('Access-Control-Allow-Credentials', 'true'),
+                ('Set-Cookie', f'user_id={user_id}; Path=/; HttpOnly; SameSite=Lax')
+            ]
+            
+            start_response('200 OK', headers)
+            return [json.dumps(response_data).encode('utf-8')]
+            
         except Exception as e:
             logging.error(f"GetUserId error: {str(e)}", exc_info=True)
             return json_response(
