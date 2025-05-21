@@ -477,87 +477,47 @@ class RemoveFromGroupView(View):
                     '400 Bad Request'
                 )
 
+            # Получаем ID целевого пользователя
             with get_db_cursor() as cursor:
-                cursor.execute('''
-                    SELECT role FROM group_members 
-                    WHERE group_id = ? AND user_id = ?
-                ''', (group_id, user_id))
-                current_user_role = cursor.fetchone()
-                
-                if not current_user_role:
-                    return json_response(
-                        {'error': 'Вы не состоите в этой группе'}, 
-                        start_response, 
-                        '403 Forbidden'
-                    )
-                
-                current_user_role = current_user_role[0]
-                
-                cursor.execute('''
-                    SELECT id, role FROM users 
-                    JOIN group_members ON users.id = group_members.user_id
-                    WHERE username = ? AND group_id = ?
-                ''', (username, group_id))
+                cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
                 target_user = cursor.fetchone()
-                
                 if not target_user:
                     return json_response(
-                        {'error': 'Пользователь не найден в группе'}, 
+                        {'error': 'User not found'}, 
                         start_response, 
                         '404 Not Found'
                     )
                 
-                target_user_id, target_user_role = target_user
-                
-                if current_user_role == 'owner':
-                    pass
-                elif current_user_role == 'admin':
-                    if target_user_role != 'member':
-                        return json_response(
-                            {'error': 'Вы можете исключать только участников'}, 
-                            start_response, 
-                            '403 Forbidden'
-                        )
-                else:
-                    return json_response(
-                        {'error': 'Недостаточно прав для исключения'}, 
-                        start_response, 
-                        '403 Forbidden'
-                    )
-                
-                if target_user_id == user_id:
-                    return json_response(
-                        {'error': 'Нельзя исключить самого себя'}, 
-                        start_response, 
-                        '400 Bad Request'
-                    )
-                
-                cursor.execute('''
-                    DELETE FROM group_members 
-                    WHERE group_id = ? AND user_id = ?
-                ''', (group_id, target_user_id))
-                
-                cursor.execute('''
-                    INSERT INTO group_messages 
-                    (group_id, user_id, message_text, timestamp)
-                    VALUES (?, 0, ?, ?)
-                ''', (group_id, f'Пользователь {username} исключен из группы 🚪', int(time.time())))
-                
-                cursor.execute('''
-                    DELETE FROM group_messages 
-                    WHERE group_id = ? AND user_id = ? AND timestamp > ?
-                ''', (group_id, target_user_id, int(time.time())))
-                
-                cursor.connection.commit()
-                
-                return json_response({
-                    'status': 'success',
-                    'removed_user': username,
-                    'group_id': group_id,
-                    'is_current_user': (target_user_id == int(user_id)),
-                    'message': 'Пользователь успешно исключен'
-                }, start_response)
-                
+                target_user_id = target_user[0]
+
+            # Удаляем через модель
+            result = GroupModel.remove_member(
+                group_id=group_id,
+                user_id=target_user_id,
+                remover_id=user_id
+            )
+            
+            if 'error' in result:
+                return json_response(
+                    {'error': result['error']}, 
+                    start_response, 
+                    '403 Forbidden' if 'Недостаточно прав' in result['error'] else '500 Internal Server Error'
+                )
+            
+            # Добавляем системное сообщение
+            action = 'исключен из группы' if target_user_id != user_id else 'покинул группу'
+            MessageModel.create_message(
+                message_type='group',
+                user_id=0,  # System
+                message_text=f'Пользователь {username} {action}',
+                group_id=group_id
+            )
+            
+            return json_response({
+                'status': 'success',
+                'message': f'User {username} removed successfully'
+            }, start_response)
+            
         except Exception as e:
             logging.error(f"RemoveFromGroup error: {str(e)}")
             return json_response(
