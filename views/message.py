@@ -1,0 +1,852 @@
+from collections import namedtuple
+import sqlite3
+import json
+import time
+import uuid
+import os 
+import logging
+import hashlib
+import re
+
+from urllib.parse import parse_qs
+from mimes import get_mime
+from webob import Request
+from werkzeug.utils import secure_filename
+
+from utils import *
+from .base import View, json_response, forbidden_response
+
+class GetMessageView(View):
+    def response(self, environ, start_response):
+        try:
+            # Парсинг и валидация параметров
+            query_params = parse_qs(environ.get('QUERY_STRING', ''))
+            timestamp = self._parse_timestamp(query_params)
+            
+            with get_db_cursor() as cursor:
+                messages = self._fetch_messages(cursor, timestamp)
+                
+            return json_response({
+                'messages': messages,
+                'timestamp': self._get_new_timestamp(messages, timestamp)
+            }, start_response)
+            
+        except ValueError as e:
+            return json_response({'error': str(e)}, start_response, '400 Bad Request')
+        except Exception as e:
+            logging.error(f"GetMessageView error: {str(e)}")
+            return json_response(
+                {'error': 'Internal server error'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )
+
+    def _parse_timestamp(self, query_params):
+        try:
+            return int(query_params.get('timestamp', ['0'])[0])
+        except (ValueError, TypeError):
+            raise ValueError("Invalid timestamp format")
+
+    def _fetch_messages(self, cursor, timestamp):
+        cursor.execute('''
+            SELECT 
+                m.message_id,
+                m.sender,
+                m.message_text,
+                m.timestamp,
+                a.file_path,
+                a.mime_type,
+                a.filename,
+                'general' as type
+            FROM messages m
+            LEFT JOIN attachments a ON a.message_id = m.message_id AND a.message_type = 'general'
+            WHERE m.timestamp > ?
+            ORDER BY m.timestamp
+        ''', (timestamp,))
+        
+        messages = {}
+        for row in cursor.fetchall():
+            msg_id = row[0]
+            if msg_id not in messages:
+                messages[msg_id] = {
+                    'id': msg_id,
+                    'sender': row[1],
+                    'message_text': row[2],
+                    'timestamp': row[3],
+                    'attachments': []
+                }
+            
+            if row[4]:  # Если есть вложение
+                messages[msg_id]['attachments'].append({
+                    'path': row[4],
+                    'mime_type': row[5],
+                    'filename': row[6]
+                })
+                
+        return list(messages.values())
+
+    def _get_new_timestamp(self, messages, old_timestamp):
+        if messages:
+            return max(msg['timestamp'] for msg in messages)
+        return old_timestamp
+
+    def get_new_messages_from_db(self, timestamp):
+        """Устаревший метод, рекомендуется использовать response"""
+        try:
+            with get_db_cursor() as cursor:
+                messages = self._fetch_messages(cursor, timestamp)
+                
+            return (
+                [{
+                    'sender': msg['sender'],
+                    'message_text': msg['message_text'],
+                    'timestamp': msg['timestamp'],
+                    'attachments': msg['attachments']
+                } for msg in messages],
+                self._get_new_timestamp(messages, timestamp)
+            )
+        except Exception as e:
+            logging.error(f"get_new_messages_from_db error: {str(e)}")
+            return [], timestamp
+
+class SendMessageView(View):
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            user_id = request.cookies.get('user_id')
+
+            
+            
+            if not user_id:
+                return forbidden_response(start_response)
+
+            if request.content_type.startswith('multipart/form-data'):
+                post_data = request.POST
+                files = request.POST.getall('files')  # Получаем файлы
+                message = post_data.get('message', '').strip()  # Получаем текст
+            else:
+                return json_response(
+                    {'error': 'Invalid content type'}, 
+                    start_response, 
+                    '400 Bad Request'
+                )
+            
+            # Не сохраняем если нет ни текста, ни файлов
+            if not message and not files:
+                return json_response({'status': 'nothing to save'}, start_response)
+
+            message = post_data.get('message', '').strip()
+            group_id = post_data.get('group_id')
+            receiver = post_data.get('receiver')
+
+
+            with get_db_cursor() as cursor:
+                cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
+                user = cursor.fetchone()
+                if not user:
+                    return forbidden_response(start_response)
+                username = user[0]
+
+                timestamp = int(time.time())
+                message_id = None
+                message_type = None
+
+                # Сохраняем сообщение только если есть текст ИЛИ файлы
+                if message or files:
+                    if group_id:
+                        # Групповое сообщение
+                        cursor.execute('''
+                            INSERT INTO group_messages 
+                            (group_id, user_id, message_text, timestamp)
+                            VALUES (?, ?, ?, ?)
+                        ''', (group_id, user_id, message, timestamp))
+                        message_type = 'group'
+                        message_id = cursor.lastrowid
+                        
+                    elif receiver:
+                        # Личное сообщение
+                        cursor.execute('SELECT id FROM users WHERE username = ?', (receiver,))
+                        receiver_user = cursor.fetchone()
+                        if not receiver_user:
+                            return json_response({'error': 'User not found'}, start_response, '404 Not Found')
+                            
+                        cursor.execute('''
+                            INSERT INTO private_messages 
+                            (sender_id, receiver_id, message_text, timestamp)
+                            VALUES (?, ?, ?, ?)
+                        ''', (user_id, receiver_user[0], message, timestamp))
+                        message_type = 'private'
+                        message_id = cursor.lastrowid
+                        
+                    else:
+                        # Общее сообщение
+                        cursor.execute('''
+                            INSERT INTO messages 
+                            (user_id, sender, message_text, timestamp)
+                            VALUES (?, ?, ?, ?)
+                        ''', (user_id, username, message, timestamp))
+                        message_type = 'general'
+                        message_id = cursor.lastrowid
+
+                    if files and message_id:
+                        unique_files = set()
+                        for file in files:
+                            if file.filename and file.file:
+                                file_content = file.file.read()
+                                file_hash = hashlib.md5(file_content).hexdigest()
+                                file.file.seek(0)  
+                                
+                                if file_hash in unique_files:
+                                    continue
+                                unique_files.add(file_hash)
+                                
+                                filename = secure_filename(file.filename)
+                                unique_name = f"{file_hash}_{filename}"
+                                file_path = os.path.join('static', 'uploads', unique_name)
+                                
+                                if not os.path.exists(file_path):
+                                    with open(file_path, 'wb') as f:
+                                        f.write(file_content)
+                                
+                                cursor.execute('''
+                                    INSERT INTO attachments 
+                                    (message_type, message_id, file_path, mime_type, filename)
+                                    VALUES (?, ?, ?, ?, ?)
+                                ''', (message_type, message_id, f'/static/uploads/{unique_name}', file.type, filename))
+                                
+                                if files and message_id and not unique_files:
+                                    cursor.connection.rollback()
+                                    return json_response({'error': 'No files to save'}, start_response, '400 Bad Request')
+
+                cursor.connection.commit()
+
+            return json_response({'status': 'success'}, start_response)
+
+        except Exception as e:
+            logging.error(f"Error in SendMessageView: {str(e)}", exc_info=True)
+            return json_response(
+                {'error': 'Internal server error'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )
+          
+class DeleteMessageView(View):
+    def get_user_id(self, environ):
+        request = Request(environ)
+        try:
+            return int(request.cookies.get('user_id', 0))
+        except (ValueError, TypeError):
+            return 0
+
+    def response(self, environ, start_response):
+        try:
+            message_id = int(environ['url_params'][0])
+            query = parse_qs(environ['QUERY_STRING'])
+            message_type = query.get('type', ['general'])[0]
+
+            user_id = self.get_user_id(environ)
+            if not user_id:
+                return forbidden_response(start_response)
+
+            table_info = {
+                'general': ('messages', 'message_id', 'user_id'),
+                'group': ('group_messages', 'message_id', 'user_id'),
+                'private': ('private_messages', 'id', 'sender_id')
+            }
+
+            if message_type not in table_info:
+                return json_response(
+                    {'error': 'Invalid message type'}, 
+                    start_response, 
+                    '400 Bad Request'
+                )
+
+            table, id_col, user_col = table_info[message_type]
+
+            with get_db_cursor() as cursor:
+                # Для общего чата и личных сообщений проверяем, что это сообщение пользователя
+                if message_type in ['general', 'private']:
+                    cursor.execute(f'''
+                        SELECT {user_col} 
+                        FROM {table} 
+                        WHERE {id_col} = ?
+                    ''', (message_id,))
+                    message_owner = cursor.fetchone()
+                    
+                    if not message_owner:
+                        return json_response(
+                            {'error': 'Message not found'}, 
+                            start_response, 
+                            '404 Not Found'
+                        )
+                    
+                    if int(message_owner[0]) != user_id:
+                        return json_response(
+                            {'error': 'Недостаточно прав для удаления'}, 
+                            start_response, 
+                            '403 Forbidden'
+                        )
+
+                # Для групповых сообщений оставляем текущую логику проверки прав
+                if message_type == 'group':
+                    # Получаем group_id сообщения
+                    cursor.execute(f'''
+                        SELECT group_id FROM group_messages 
+                        WHERE message_id = ?
+                    ''', (message_id,))
+                    group_result = cursor.fetchone()
+                    
+                    if not group_result:
+                        return json_response(
+                            {'error': 'Message not found'}, 
+                            start_response, 
+                            '404 Not Found'
+                        )
+                    
+                    group_id = group_result[0]
+                    
+                    # Проверяем права пользователя
+                    cursor.execute('''
+                        SELECT role FROM group_members 
+                        WHERE group_id = ? AND user_id = ?
+                    ''', (group_id, user_id))
+                    role_result = cursor.fetchone()
+                    
+                    if not role_result:
+                        return json_response(
+                            {'error': 'Not a group member'}, 
+                            start_response, 
+                            '403 Forbidden'
+                        )
+                    
+                    role = role_result[0]
+                    
+                    # Если не админ, проверяем что это его сообщение
+                    if role not in ('owner', 'admin'):
+                        cursor.execute(f'''
+                            SELECT {user_col} 
+                            FROM {table} 
+                            WHERE {id_col} = ?
+                        ''', (message_id,))
+                        message_owner = cursor.fetchone()
+                        
+                        if not message_owner or int(message_owner[0]) != user_id:
+                            return json_response(
+                                {'error': 'Недостаточно прав'}, 
+                                start_response, 
+                                '403 Forbidden'
+                            )
+
+                # Удаляем сообщение
+                cursor.execute(f'''
+                    DELETE FROM {table} 
+                    WHERE {id_col} = ?
+                ''', (message_id,))
+
+                # Удаляем вложения
+                cursor.execute('''
+                    DELETE FROM attachments 
+                    WHERE message_type = ? 
+                    AND message_id = ?
+                ''', (message_type, message_id))
+
+                cursor.connection.commit()
+                return json_response(
+                    {'status': 'Сообщение удалено'}, 
+                    start_response
+                )
+
+        except Exception as e:
+            logging.error(f"Ошибка удаления: {str(e)}")
+            return json_response(
+                {'error': 'Внутренняя ошибка сервера'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )
+        
+class EditMessageView(View):
+    def response(self, environ, start_response):
+        try:
+            message_id = int(environ['url_params'][0])
+            query = parse_qs(environ['QUERY_STRING'])
+            message_type = query.get('type', ['general'])[0]
+
+            if message_type not in ['general', 'group', 'private']:
+                return json_response(
+                    {'error': 'Неверный тип сообщения'},
+                    start_response,
+                    '400 Bad Request'
+                )
+
+            user_id = self.get_user_id(environ)
+            if not user_id:
+                return forbidden_response(start_response)
+
+            table_map = {
+                'general': ('messages', 'message_id', 'user_id'),
+                'group': ('group_messages', 'message_id', 'user_id'),
+                'private': ('private_messages', 'id', 'sender_id')
+            }
+
+            table, id_col, user_col = table_map[message_type]
+
+            content_length = int(environ.get('CONTENT_LENGTH', 0))
+            data = json.loads(environ['wsgi.input'].read(content_length))
+            new_text = data.get('message', '').strip()
+            new_timestamp = data.get('timestamp', int(time.time()))
+            
+            if not new_text:
+                return json_response(
+                    {'error': 'Текст сообщения не может быть пустым'}, 
+                    start_response, 
+                    '400 Bad Request'
+                )
+
+            with get_db_cursor() as cursor:
+                # Для всех типов сообщений проверяем, что это сообщение пользователя
+                cursor.execute(f'''
+                    SELECT {user_col} 
+                    FROM {table} 
+                    WHERE {id_col} = ?
+                ''', (message_id,))
+                result = cursor.fetchone()
+
+                if not result:
+                    return json_response(
+                        {'error': 'Сообщение не найдено'}, 
+                        start_response, 
+                        '404 Not Found'
+                    )
+
+                if int(result[0]) != int(user_id):
+                    # Для групповых сообщений проверяем права администратора
+                    if message_type == 'group':
+                        cursor.execute('''
+                            SELECT role FROM group_members 
+                            WHERE group_id = (
+                                SELECT group_id FROM group_messages WHERE message_id = ?
+                            ) AND user_id = ?
+                        ''', (message_id, user_id))
+                        role_result = cursor.fetchone()
+                        
+                        if not role_result or role_result[0] not in ('owner', 'admin'):
+                            return json_response(
+                                {'error': 'Нет прав на редактирование'}, 
+                                start_response, 
+                                '403 Forbidden'
+                            )
+                    else:
+                        # Для общего чата и личных сообщений запрещаем редактирование чужих сообщений
+                        return json_response(
+                            {'error': 'Нет прав на редактирование'}, 
+                            start_response, 
+                            '403 Forbidden'
+                        )
+
+                cursor.execute(f'''
+                    UPDATE {table} 
+                    SET message_text = ?, timestamp = ?
+                    WHERE {id_col} = ?
+                ''', (new_text, new_timestamp, message_id))
+                
+                cursor.connection.commit()
+                return json_response({'status': 'Сообщение обновлено'}, start_response)
+
+        except Exception as e:
+            logging.error(f"Ошибка редактирования: {str(e)}", exc_info=True)
+            return json_response(
+                {'error': 'Внутренняя ошибка сервера'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )
+
+    def get_user_id(self, environ):
+        request = Request(environ)
+        return int(request.cookies.get('user_id', 0))
+
+class GetGroupMessagesView(View):
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            query_string = environ.get('QUERY_STRING', '')
+            group_id = None
+            
+            for param in query_string.split('&'):
+                if param.startswith('group_id='):
+                    group_id = param.split('=')[1]
+                    break
+            
+            if not group_id:
+                return json_response(
+                    {'error': 'Group ID is required'},
+                    start_response,
+                    '400 Bad Request'
+                )
+            
+            try:
+                group_id = int(group_id)
+            except ValueError:
+                return json_response(
+                    {'error': 'Invalid group ID format'},
+                    start_response,
+                    '400 Bad Request'
+                )
+            
+            timestamp = int(request.GET.get('timestamp', 0))
+            user_id = request.cookies.get('user_id')
+
+            if not user_id:
+                return forbidden_response(start_response)
+
+            with get_db_cursor() as cursor:
+                cursor.execute('''
+                    SELECT 
+                        gm.message_id,
+                        CASE 
+                            WHEN gm.user_id = 0 THEN 'System'
+                            ELSE u.username
+                        END as sender,
+                        gm.message_text,
+                        gm.timestamp,
+                        a.file_path,
+                        a.mime_type,
+                        a.filename,
+                        'group' as type,
+                        gm.user_id
+                    FROM group_messages gm
+                    LEFT JOIN users u ON gm.user_id = u.id
+                    LEFT JOIN attachments a 
+                        ON a.message_id = gm.message_id 
+                        AND a.message_type = 'group'
+                    WHERE gm.group_id = ? AND gm.timestamp > ?
+                    ORDER BY gm.timestamp
+                ''', (group_id, timestamp))
+                
+                messages = {}
+                for row in cursor.fetchall():
+                    msg_id = row[0]
+                    if msg_id not in messages:
+                        messages[msg_id] = {
+                            'id': msg_id,
+                            'sender': row[1],
+                            'message_text': row[2],
+                            'timestamp': row[3],
+                            'type': row[7],
+                            'user_id': row[8],
+                            'attachments': []
+                        }
+                    
+                    if row[4]:  # Если есть вложение
+                        messages[msg_id]['attachments'].append({
+                            'path': row[4],
+                            'mime_type': row[5],
+                            'filename': row[6]
+                        })
+                
+                return json_response({
+                    'messages': list(messages.values()),
+                    'timestamp': max([msg['timestamp'] for msg in messages.values()] or [timestamp])
+                }, start_response)
+
+        except Exception as e:
+            logging.error(f"GetGroupMessages error: {str(e)}", exc_info=True)
+            return json_response(
+                {'error': 'Internal server error'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )
+
+class GetPrivateMessagesView(View):
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            user_id = request.cookies.get('user_id')
+            other_user = request.GET.get('user')
+            timestamp = int(request.GET.get('timestamp', 0))
+
+            if not user_id:
+                return json_response(
+                    {'error': 'Not authorized'}, 
+                    start_response, 
+                    '401 Unauthorized'
+                )
+            
+            if not other_user:
+                return json_response(
+                    {'error': 'User parameter is required'},
+                    start_response,
+                    '400 Bad Request'
+                )
+
+            with get_db_cursor() as cursor:
+                # Получаем ID собеседника
+                cursor.execute('SELECT id FROM users WHERE username = ?', (other_user,))
+                result = cursor.fetchone()
+                if not result:
+                    return json_response(
+                        {'error': 'User not found'}, 
+                        start_response, 
+                        '404 Not Found'
+                    )
+                
+                other_user_id = result[0]
+                
+                cursor.execute('''
+                    SELECT 
+                        pm.id,
+                        pm.message_text,
+                        u_sender.username as sender,
+                        pm.timestamp,
+                        a.file_path,
+                        a.mime_type,
+                        a.filename,
+                        pm.sender_id
+                    FROM private_messages pm
+                    JOIN users u_sender ON pm.sender_id = u_sender.id
+                    LEFT JOIN attachments a ON a.message_id = pm.id AND a.message_type = 'private'
+                    WHERE ((pm.sender_id = ? AND pm.receiver_id = ?)
+                    OR (pm.sender_id = ? AND pm.receiver_id = ?))
+                    AND pm.timestamp > ?
+                    ORDER BY pm.timestamp ASC
+                ''', [user_id, other_user_id, other_user_id, user_id, timestamp])
+                
+                messages = []
+                current_msg_id = None
+                current_msg = None
+                
+                for row in cursor.fetchall():
+                    msg_id = row[0]
+                    if msg_id != current_msg_id:
+                        if current_msg:
+                            messages.append(current_msg)
+                        current_msg = {
+                            'id': msg_id,
+                            'sender': row[2],
+                            'message_text': row[1],
+                            'timestamp': row[3],
+                            'attachments': []
+                        }
+                        current_msg_id = msg_id
+                    
+                    if row[4]:  # Если есть вложение
+                        current_msg['attachments'].append({
+                            'path': row[4],
+                            'mime_type': row[5],
+                            'filename': row[6]
+                        })
+                
+                if current_msg:
+                    messages.append(current_msg)
+
+                new_timestamp = max([msg['timestamp'] for msg in messages]) if messages else timestamp
+                
+                return json_response({
+                    'messages': messages,
+                    'timestamp': new_timestamp
+                }, start_response)
+
+        except Exception as e:
+            print(f"Error in private messages: {str(e)}")
+            return json_response(
+                {'error': 'Internal server error'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )
+
+class SendPrivateMessageView(View):
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            user_id = request.cookies.get('user_id')
+            
+            if not user_id:
+                return forbidden_response(start_response)
+
+            # Правильное чтение тела запроса
+            content_length = int(environ.get('CONTENT_LENGTH', 0))
+            post_data = json.loads(environ['wsgi.input'].read(content_length))
+            
+            receiver = post_data.get('receiver')
+            message = post_data.get('message')
+
+            if not receiver or not message:
+                return json_response(
+                    {'error': 'Missing parameters'}, 
+                    start_response, 
+                    '400 Bad Request'
+                )
+
+            with get_db_cursor() as cursor:
+                # Получаем ID получателя
+                cursor.execute(
+                    'SELECT id FROM users WHERE username = ?',
+                    (receiver,)
+                )
+                result = cursor.fetchone()
+                if not result:
+                    return json_response(
+                        {'error': 'User not found'}, 
+                        start_response, 
+                        '404 Not Found'
+                    )
+                
+                receiver_id = result[0]
+                timestamp = int(time.time())
+
+                # Сохраняем сообщение
+                cursor.execute('''
+                    INSERT INTO private_messages 
+                    (sender_id, receiver_id, message_text, timestamp)
+                    VALUES (?, ?, ?, ?)
+                ''', (user_id, receiver_id, message, timestamp))
+                
+                cursor.connection.commit()
+                return json_response({'status': 'success'}, start_response)
+
+        except Exception as e:
+            print(f"Error in private message: {str(e)}")
+            return json_response(
+                {'error': 'Internal server error'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )
+
+class SendSystemMessageView(View):
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            data = json.loads(request.body.decode('utf-8'))
+            
+            if data['type'] == 'group_leave':
+                message_text = f"Пользователь {data['username']} покинул группу"                
+                with get_db_cursor() as cursor:
+                    cursor.execute('''
+                        INSERT INTO group_messages 
+                        (group_id, user_id, message_text, timestamp)
+                        VALUES (?, 0, ?, ?)
+                    ''', (data['group_id'], message_text, int(time.time())))
+                    
+                    cursor.connection.commit()
+                    
+            return json_response({'status': 'success'}, start_response)
+            
+        except Exception as e:
+            return json_response({'error': str(e)}, start_response, '500 Internal Server Error')
+            
+class CheckMessagesView(View):
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            query = parse_qs(environ['QUERY_STRING'])
+            message_type = query.get('type', ['general'])[0]
+            message_ids = query.get('ids', [''])[0].split(',')
+            
+            if not message_ids or not message_ids[0]:
+                return json_response({'existingIds': []}, start_response)
+
+            with get_db_cursor() as cursor:
+                if message_type == 'group':
+                    chat_id = query.get('chat_id', [None])[0]
+                    cursor.execute('''
+                        SELECT message_id 
+                        FROM group_messages 
+                        WHERE group_id = ? AND message_id IN (%s)
+                    ''' % ','.join('?'*len(message_ids)), 
+                    [chat_id] + message_ids)
+                elif message_type == 'private':
+                    # Для приватных чатов нужно проверить оба направления
+                    user_id = request.cookies.get('user_id')
+                    chat_id = query.get('chat_id', [None])[0]
+                    cursor.execute('SELECT id FROM users WHERE username = ?', (chat_id,))
+                    partner = cursor.fetchone()
+                    if not partner:
+                        return json_response({'existingIds': []}, start_response)
+                    
+                    cursor.execute('''
+                        SELECT id 
+                        FROM private_messages 
+                        WHERE (
+                            (sender_id = ? AND receiver_id = ?) OR
+                            (sender_id = ? AND receiver_id = ?)
+                        ) AND id IN (%s)
+                    ''' % ','.join('?'*len(message_ids)), 
+                    [user_id, partner[0], partner[0], user_id] + message_ids)
+                else:
+                    cursor.execute('''
+                        SELECT message_id 
+                        FROM messages 
+                        WHERE message_id IN (%s)
+                    ''' % ','.join('?'*len(message_ids)), 
+                    message_ids)
+                
+                existing_ids = [str(row[0]) for row in cursor.fetchall()]
+                return json_response({'existingIds': existing_ids}, start_response)
+                
+        except Exception as e:
+            logging.error(f"CheckMessages error: {str(e)}")
+            return json_response({'existingIds': []}, start_response)
+        
+class CheckEditedMessagesView(View):
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            query = parse_qs(environ['QUERY_STRING'])
+            message_type = query.get('type', ['general'])[0]
+            last_timestamp = int(query.get('last_timestamp', [0])[0])
+            
+            with get_db_cursor() as cursor:
+                if message_type == 'group':
+                    chat_id = query.get('chat_id', [None])[0]
+                    cursor.execute('''
+                        SELECT 
+                            gm.message_id as id,
+                            gm.message_text as text,
+                            gm.timestamp
+                        FROM group_messages gm
+                        WHERE gm.group_id = ? 
+                        AND gm.timestamp > ?
+                        ORDER BY gm.timestamp DESC
+                    ''', (chat_id, last_timestamp))
+                elif message_type == 'private':
+                    user_id = request.cookies.get('user_id')
+                    chat_id = query.get('chat_id', [None])[0]
+                    cursor.execute('SELECT id FROM users WHERE username = ?', (chat_id,))
+                    partner = cursor.fetchone()
+                    if not partner:
+                        return json_response({'editedMessages': []}, start_response)
+                    
+                    cursor.execute('''
+                        SELECT 
+                            pm.id as id,
+                            pm.message_text as text,
+                            pm.timestamp
+                        FROM private_messages pm
+                        WHERE (
+                            (pm.sender_id = ? AND pm.receiver_id = ?) OR
+                            (pm.sender_id = ? AND pm.receiver_id = ?)
+                        )
+                        AND pm.timestamp > ?
+                        ORDER BY pm.timestamp DESC
+                    ''', [user_id, partner[0], partner[0], user_id, last_timestamp])
+                else:
+                    cursor.execute('''
+                        SELECT 
+                            m.message_id as id,
+                            m.message_text as text,
+                            m.timestamp
+                        FROM messages m
+                        WHERE m.timestamp > ?
+                        ORDER BY m.timestamp DESC
+                    ''', (last_timestamp,))
+                
+                edited_messages = [{
+                    'id': row[0],
+                    'text': row[1],
+                    'timestamp': row[2]
+                } for row in cursor.fetchall()]
+                
+                return json_response({'editedMessages': edited_messages}, start_response)
+                
+        except Exception as e:
+            logging.error(f"CheckEditedMessages error: {str(e)}")
+            return json_response({'editedMessages': []}, start_response)
