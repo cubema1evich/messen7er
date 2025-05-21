@@ -448,6 +448,148 @@ class MessageModel:
                 'last_activity': row[1] or 0
             } for row in cursor.fetchall()]
         
+    @staticmethod
+    def search_messages(
+        search_query: str,
+        message_type: str = 'general',
+        chat_id: Optional[str] = None,
+        user_id: Optional[int] = None,
+        page: int = 1,
+        per_page: int = 20,
+        sort: str = 'date'
+    ) -> dict:
+        """
+        Исправленный поиск сообщений
+        """
+        try:
+            with get_db_cursor() as cursor:
+                # Определяем параметры для разных типов сообщений
+                if message_type == 'group':
+                    query = """
+                        SELECT 
+                            gm.message_id as id,
+                            gm.message_text as text,
+                            CASE 
+                                WHEN gm.user_id = 0 THEN 'System'
+                                ELSE u.username
+                            END as sender,
+                            gm.timestamp,
+                            gm.message_text as snippet
+                        FROM group_messages gm
+                        LEFT JOIN users u ON gm.user_id = u.id
+                        WHERE gm.group_id = ? AND gm.message_text LIKE ?
+                        ORDER BY gm.timestamp DESC
+                        LIMIT ? OFFSET ?
+                    """
+                    params = [chat_id, f'%{search_query}%', per_page, (page - 1) * per_page]
+                    
+                    count_query = """
+                        SELECT COUNT(*) 
+                        FROM group_messages 
+                        WHERE group_id = ? AND message_text LIKE ?
+                    """
+                    count_params = [chat_id, f'%{search_query}%']
+                    
+                elif message_type == 'private':
+                    # Получаем ID собеседника
+                    cursor.execute("SELECT id FROM users WHERE username = ?", (chat_id,))
+                    partner = cursor.fetchone()
+                    if not partner:
+                        return {'messages': [], 'total': 0}
+                    
+                    query = """
+                        SELECT 
+                            pm.id as id,
+                            pm.message_text as text,
+                            u.username as sender,
+                            pm.timestamp,
+                            pm.message_text as snippet
+                        FROM private_messages pm
+                        JOIN users u ON pm.sender_id = u.id
+                        WHERE (
+                            (pm.sender_id = ? AND pm.receiver_id = ?) OR 
+                            (pm.sender_id = ? AND pm.receiver_id = ?)
+                        )
+                        AND pm.message_text LIKE ?
+                        ORDER BY pm.timestamp DESC
+                        LIMIT ? OFFSET ?
+                    """
+                    params = [
+                        user_id, partner[0],  # user_id -> partner
+                        partner[0], user_id,  # partner -> user_id
+                        f'%{search_query}%',
+                        per_page, (page - 1) * per_page
+                    ]
+                    
+                    count_query = """
+                        SELECT COUNT(*) 
+                        FROM private_messages 
+                        WHERE (
+                            (sender_id = ? AND receiver_id = ?) OR 
+                            (sender_id = ? AND receiver_id = ?)
+                        )
+                        AND message_text LIKE ?
+                    """
+                    count_params = [
+                        user_id, partner[0],
+                        partner[0], user_id,
+                        f'%{search_query}%'
+                    ]
+                    
+                else:  # general
+                    query = """
+                        SELECT 
+                            m.message_id as id,
+                            m.message_text as text,
+                            m.sender,
+                            m.timestamp,
+                            m.message_text as snippet
+                        FROM messages m
+                        WHERE m.message_text LIKE ?
+                        ORDER BY m.timestamp DESC
+                        LIMIT ? OFFSET ?
+                    """
+                    params = [f'%{search_query}%', per_page, (page - 1) * per_page]
+                    
+                    count_query = """
+                        SELECT COUNT(*) 
+                        FROM messages 
+                        WHERE message_text LIKE ?
+                    """
+                    count_params = [f'%{search_query}%']
+                
+                # Выполняем поиск
+                cursor.execute(query, params)
+                messages = []
+                for row in cursor.fetchall():
+                    messages.append({
+                        'id': row[0],
+                        'text': row[1],
+                        'sender': row[2],
+                        'timestamp': row[3],
+                        'snippet': row[4]
+                    })
+                
+                # Получаем общее количество
+                cursor.execute(count_query, count_params)
+                total = cursor.fetchone()[0]
+                
+                return {
+                    'messages': messages,
+                    'total': total,
+                    'page': page,
+                    'per_page': per_page
+                }
+                
+        except Exception as e:
+            logging.error(f"Search error: {str(e)}")
+            return {
+                'messages': [],
+                'total': 0,
+                'page': page,
+                'per_page': per_page
+            }
+        
 class UserModel:
     @staticmethod
     def create_user(username: str, password: str) -> tuple:
