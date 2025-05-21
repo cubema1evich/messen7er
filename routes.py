@@ -1,4 +1,14 @@
-from views import *
+from views import (
+    View, IndexView, GetUserIdView, GetMessageView, SendMessageView,
+    RegisterView, LoginView, GetGroupMessagesView, CheckMessagesView,
+    CheckEditedMessagesView, CreateGroupView, AddToGroupView, LeaveGroupView,
+    GetGroupsView, SendPrivateMessageView, GetPrivateMessagesView,
+    CheckGroupsUpdatesView, EditMessageView, CheckPrivateChatsUpdatesView, DeleteMessageView,
+    SearchUsersView, GetPrivateChatsView, SearchMessagesView,
+    GetGroupMembersView, CheckGroupAccessView, SendSystemMessageView,
+    ChangeMemberRoleView, RenameGroupView, RemoveFromGroupView,
+    GetGeneralMembersView, NotFoundView, ForbiddenView, InternalServerErrorView
+)
 
 routes = {
     '/static/': View,
