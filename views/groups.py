@@ -370,54 +370,29 @@ class RenameGroupView(View):
                     '400 Bad Request'
                 )
 
-            with get_db_cursor() as cursor:
-                # Проверяем права пользователя
-                cursor.execute('''
-                    SELECT role FROM group_members 
-                    WHERE group_id = ? AND user_id = ?
-                ''', (group_id, user_id))
-                result = cursor.fetchone()
-                
-                if not result or result[0] not in ('owner', 'admin'):
-                    return json_response(
-                        {'error': 'Недостаточно прав для изменения названия группы'},
-                        start_response,
-                        '403 Forbidden'
-                    )
-                
-                # Проверяем, что новое имя не занято
-                cursor.execute('''
-                    SELECT 1 FROM groups 
-                    WHERE name = ? AND group_id != ?
-                ''', (new_name, group_id))
-                if cursor.fetchone():
-                    return json_response(
-                        {'error': 'Группа с таким именем уже существует'},
-                        start_response,
-                        '400 Bad Request'
-                    )
-                
-                # Обновляем название группы
-                cursor.execute('''
-                    UPDATE groups 
-                    SET name = ? 
-                    WHERE group_id = ?
-                ''', (new_name, group_id))
-                
-                # Добавляем системное сообщение
-                cursor.execute('''
-                    INSERT INTO group_messages 
-                    (group_id, user_id, message_text, timestamp)
-                    VALUES (?, 0, ?, ?)
-                ''', (group_id, f'Название группы изменено на "{new_name}"', int(time.time())))
-                
-                cursor.connection.commit()
-                
-                return json_response(
-                    {'status': 'success', 'new_name': new_name}, 
-                    start_response
-                )
-                
+            result = GroupModel.rename_group(
+                group_id=group_id,
+                new_name=new_name,
+                user_id=user_id
+            )
+            
+            if 'error' in result:
+                status_code = '400 Bad Request' if 'уже существует' in result['error'] else '403 Forbidden'
+                return json_response(result, start_response, status_code)
+            
+            # Добавляем системное сообщение
+            MessageModel.create_message(
+                message_type='group',
+                user_id=0,  # System
+                message_text=f'Название группы изменено на "{new_name}"',
+                group_id=group_id
+            )
+            
+            return json_response({
+                'status': 'success',
+                'new_name': new_name
+            }, start_response)
+            
         except Exception as e:
             logging.error(f"RenameGroup error: {str(e)}")
             return json_response(
