@@ -422,3 +422,26 @@ class MessageModel:
         except Exception as e:
             logging.error(f"Error editing message: {str(e)}")
             return False
+        
+    @staticmethod
+    def get_private_chats(user_id: int) -> list:
+        """Получает список приватных чатов пользователя"""
+        with get_db_cursor() as cursor:
+            cursor.execute('''
+                SELECT DISTINCT 
+                    CASE 
+                        WHEN pm.sender_id = ? THEN u_receiver.username
+                        ELSE u_sender.username
+                    END as partner,
+                    MAX(pm.timestamp) as last_activity
+                FROM private_messages pm
+                JOIN users u_sender ON pm.sender_id = u_sender.id
+                JOIN users u_receiver ON pm.receiver_id = u_receiver.id
+                WHERE pm.sender_id = ? OR pm.receiver_id = ?
+                GROUP BY partner
+                ORDER BY last_activity DESC
+            ''', (user_id, user_id, user_id))
+            return [{
+                'username': row[0],
+                'last_activity': row[1] or 0
+            } for row in cursor.fetchall()]
