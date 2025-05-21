@@ -529,3 +529,58 @@ class UserModel:
                     (f'%{query}%',)
                 )
             return [row[0] for row in cursor.fetchall()]
+        
+class GroupModel:
+    @staticmethod
+    def create_group(name: str, creator_id: int) -> dict:
+        """Создает новую группу"""
+        try:
+            timestamp = int(datetime.now().timestamp())
+            with get_db_cursor() as cursor:
+                cursor.execute('''
+                    INSERT INTO groups (name, creator_id, created_at)
+                    VALUES (?, ?, ?)
+                ''', (name, creator_id, timestamp))
+                
+                group_id = cursor.lastrowid
+                
+                # Добавляем создателя как владельца
+                cursor.execute('''
+                    INSERT INTO group_members (group_id, user_id, role, joined_at)
+                    VALUES (?, ?, ?, ?)
+                ''', (group_id, creator_id, 'owner', timestamp))
+                
+                cursor.connection.commit()
+                return {'status': 'success', 'group_id': group_id}
+        except sqlite3.IntegrityError:
+            return {'error': 'Группа с таким именем уже существует'}
+        except Exception as e:
+            logging.error(f"Group creation error: {str(e)}")
+            return {'error': 'Ошибка создания группы'}
+
+    @staticmethod
+    def get_user_groups(user_id: int) -> list:
+        """Получает группы пользователя"""
+        with get_db_cursor() as cursor:
+            cursor.execute('''
+                SELECT g.group_id, g.name, gm.role
+                FROM groups g
+                JOIN group_members gm ON g.group_id = gm.group_id
+                WHERE gm.user_id = ?
+                ORDER BY g.name
+            ''', (user_id,))
+            return [{
+                'id': row[0],
+                'name': row[1],
+                'role': row[2]
+            } for row in cursor.fetchall()]
+
+    @staticmethod
+    def check_group_access(group_id: int, user_id: int) -> bool:
+        """Проверяет доступ пользователя к группе"""
+        with get_db_cursor() as cursor:
+            cursor.execute('''
+                SELECT 1 FROM group_members 
+                WHERE group_id = ? AND user_id = ?
+            ''', (group_id, user_id))
+            return cursor.fetchone() is not None
