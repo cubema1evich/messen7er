@@ -70,22 +70,3 @@ class CheckPrivateChatsUpdatesView(View):
             logging.error(f"CheckPrivateChatsUpdates error: {str(e)}")
             return json_response({'updated': False}, start_response)
         
-def check_group_permissions(cursor, user_id, group_id, required_role=None):
-    """Проверяет права пользователя в группе"""
-    cursor.execute('''
-        SELECT role FROM group_members 
-        WHERE group_id = ? AND user_id = ?
-    ''', (group_id, user_id))
-    result = cursor.fetchone()
-    
-    if not result:
-        return False  # Пользователь не в группе
-    
-    user_role = result[0]
-    
-    if required_role == 'owner':
-        return user_role == 'owner'
-    elif required_role == 'admin':
-        return user_role in ('owner', 'admin')
-    
-    return True

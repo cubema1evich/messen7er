@@ -11,6 +11,27 @@ from .base import json_response, forbidden_response, View
 from utils import *
 
 
+def check_group_permissions(cursor, user_id, group_id, required_role=None):
+    """Проверяет права пользователя в группе"""
+    cursor.execute('''
+        SELECT role FROM group_members 
+        WHERE group_id = ? AND user_id = ?
+    ''', (group_id, user_id))
+    result = cursor.fetchone()
+    
+    if not result:
+        return False  
+    
+    user_role = result[0]
+    
+    if required_role == 'owner':
+        return user_role == 'owner'
+    elif required_role == 'admin':
+        return user_role in ('owner', 'admin')
+    
+    return True
+
+
 class GetGroupMembersView(View):
     def response(self, environ, start_response):
         request = Request(environ)
