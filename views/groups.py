@@ -3,7 +3,9 @@ import json
 import time
 import logging
 
-from models import *
+from models.GroupModel import *
+from models.MessageModel import *
+from models.UserModel import *
 from webob import Request
 from .base import json_response, forbidden_response, View
 from utils import *

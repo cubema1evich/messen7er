@@ -1,10 +1,10 @@
-import sqlite3
 import json
-import time
 import logging
 
 from webob import Request
-from models import *
+from models.GroupModel import *
+from models.MessageModel import *
+from models.UserModel import *
 from utils import *
 from .base import View, json_response
 

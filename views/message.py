@@ -1,21 +1,17 @@
 from collections import namedtuple
-import sqlite3
 import json
 import time
-import uuid
 import os 
 import logging
-import hashlib
-import re
 
 from urllib.parse import parse_qs
 from mimes import get_mime
 from webob import Request
 from werkzeug.utils import secure_filename
-from models import *
-
 from utils import *
 from .base import View, json_response, forbidden_response
+from models.MessageModel import *
+from models.UserModel import *
 
 
 class GetMessageView(View):

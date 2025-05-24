@@ -3,9 +3,11 @@ import logging
 
 from urllib.parse import parse_qs
 from webob import Request
-from models import *
 from utils import *
 from .base import View, json_response, forbidden_response
+from models.GroupModel import *
+from models.MessageModel import *
+from models.UserModel import *
 
 class SearchUsersView(View):
     def response(self, environ, start_response):

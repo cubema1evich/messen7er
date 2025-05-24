@@ -9,8 +9,7 @@ import hashlib
 import re
 
 from webob import Request
-from models import *
-
+from models.MessageModel import *
 from utils import *
 from .base import View, json_response, forbidden_response
 

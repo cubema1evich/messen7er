@@ -1,11 +1,8 @@
-import sqlite3
 import json
-import logging
-import re
 
 from urllib.parse import parse_qs
 from webob import Request
-from models import *
+from models.UserModel import *
 from utils import *
 from .base import json_response, TemplateView
 
