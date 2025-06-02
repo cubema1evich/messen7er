@@ -146,7 +146,7 @@ body {
 
 .send-btn {
     order: 3; /* Отправка последней в ряду */
-    margin-left: -10px;
+    margin-left: 0px;
 }
 
 /* Стрелка внутри кнопки */
@@ -1196,5 +1196,89 @@ body {
     
     .modal-attachment img {
         max-height: 150px;
+    }
+}
+
+/* Адаптация для мобильных устройств */
+@media (max-width: 768px) {
+    /* Оптимизация контейнера ввода */
+    .message-input-container {
+        flex-direction: row;
+        flex-wrap: wrap;
+        padding: 10px;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: white;
+        border-top: 1px solid #ddd;
+        z-index: 1000;
+    }
+
+    /* Адаптация текстового поля */
+    #message-input {
+        min-height: 40px;
+        max-height: 100px;
+        width: calc(100% - 120px);
+        margin: 0;
+        font-size: 14px;
+        order: 1;
+        flex-grow: 1;
+    }
+
+    /* Адаптация кнопок */
+    .buttons-column {
+        flex-direction: row;
+        order: 2;
+        margin: 10px 0 0;
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    /* Увеличение кнопок для удобства нажатия */
+    .send-btn,
+    .emoji-btn,
+    .file-btn {
+        width: 45px;
+        height: 45px;
+        flex-shrink: 0;
+    }
+
+    /* Перемещение кнопки отправки вниз */
+    .send-btn {
+        margin-left: 0;
+        order: 3;
+    }
+
+    /* Скрытие индикатора файлов на мобильных */
+    .file-indicator {
+        display: none !important;
+    }
+
+    /* Адаптация контейнера чата */
+    .chat-container {
+        margin: 60px 0 70px;
+        height: calc(100vh - 130px);
+        padding: 10px;
+    }
+
+    .chat-box {
+        height: calc(100vh - 200px);
+    }
+}
+
+/* Дополнительные оптимизации для маленьких экранов */
+@media (max-width: 480px) {
+    #message-input {
+        width: calc(100% - 90px);
+    }
+    
+    .buttons-column {
+        gap: 5px;
+    }
+    
+    .auth-btn {
+        padding: 8px 15px;
+        font-size: 12px;
     }
 }

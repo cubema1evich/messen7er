@@ -70,16 +70,18 @@
         </div>  
         <form id="message-form" class="message-form" enctype="multipart/form-data">
             <div class="message-input-container">
-                <div class="file-indicator" id="file-indicator">
-                    <span class="file-count">0 файлов</span>
-                    <button class="clear-files-btn">×</button>
-                </div>
                 <textarea id="message-input" placeholder="Введите сообщение..." autocomplete="off" rows="1"></textarea>
-                <button type="submit" class="send-btn" id="send-btn"></button>
+                
                 <div class="buttons-column">
                     <button type="button" id="emoji-btn" class="emoji-btn">😀</button>
                     <input type="file" id="file-input" style="display: none;" multiple>
                     <button type="button" id="file-btn" class="file-btn">📎</button>
+                    <button type="submit" class="send-btn" id="send-btn"></button>
+                </div>
+                
+                <div class="file-indicator" id="file-indicator">
+                    <span class="file-count">0 файлов</span>
+                    <button class="clear-files-btn">×</button>
                 </div>
             </div>
             <div id="emoji-picker" class="emoji-picker"></div>
