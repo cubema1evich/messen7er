@@ -1214,22 +1214,319 @@ body {
   border-left: 4px solid #FF9BAF;
 }
 
-/* Адаптация для мобильных устройств */
+/* Медиа-запросы */
+@media (max-width: 1200px) {
+    .chat-container {
+        width: 95%; 
+        max-width: 100%;
+        margin: 70px auto 15px;
+        padding: 15px;
+    }
+}
+
 @media (max-width: 768px) {
-  .modal-content {
-    margin: 20% auto;
-    padding: 20px;
-    width: 95%;
-  }
-  
-  .modal-buttons {
-    flex-direction: column;
-    gap: 12px;
-  }
-  
-  .close-modal {
-    right: 15px;
-    top: 15px;
-    font-size: 28px;
-  }
+    body {
+        font-size: 14px;
+        overflow-x: hidden;
+        touch-action: pan-y; /* Разрешаем только вертикальное скроллирование */
+    }
+
+    .chat-container {
+        width: calc(100% - 40px); /* Уменьшаем ширину на 40px (20px с каждой стороны) */
+        margin: 10px 20px 15px 20px; /* Отступы: сверху 0, справа 20px, снизу 15px, слева 20px */
+        padding: 10px;
+        height: 65vh;
+    }
+
+    .chat-box {
+        height: 65vh;
+        padding: 5px;
+    }
+
+    textarea#message-input {
+        width: 100% !important; /* Занимает всю доступную ширину */
+        min-height: 60px; /* Увеличенная высота */
+    }
+
+    .message {
+        padding: 12px;
+        margin: 10px 20px 8px;
+    }
+
+    .sidebar {
+        width: 85%;
+        max-width: 300px;
+        left: -100%;
+    }
+
+    .sidebar-right {
+        width: 85%;
+        max-width: 300px;
+        right: -100%;
+    }
+
+    .groups-toggle {
+        position: static;
+        top: auto;
+        left: auto;
+        background: none;
+        box-shadow: none;
+        backdrop-filter: none;
+        padding: 0;
+        border-radius: 0;
+        flex-direction: row;
+        gap: 5px;
+        margin-left: auto; /* Перемещаем вправо */
+        order: 2; /* В контейнере будет после auth-buttons */
+    }
+
+    #sidebar-toggle, #members-toggle {
+        padding: 8px 15px;
+        font-size: 12px;
+    }
+
+    .message-input-container {
+        padding: 10px;
+        gap: 8px;
+        flex-direction: column;
+    }
+
+    #message-input {
+        padding: 10px;
+        font-size: 14px;
+        min-height: 40px;
+    }
+
+    .send-btn, .emoji-btn, .file-btn {
+        width: 36px;
+        height: 36px;
+    }
+
+    .header {
+        padding: 10px;
+    }
+
+    .auth-buttons {
+        gap: 8px;
+    }
+
+    .auth-btn, .logout-btn {
+        padding: 8px 15px;
+        font-size: 12px;
+    }
+
+    .attachment-image img {
+        max-width: 150px;
+    }
+    #sidebar-toggle::after {
+        content: "👥";
+        font-size: 20px;
+    }
+    
+    #members-toggle::after {
+        content: "👤";
+        font-size: 20px;
+    }
+    
+    #sidebar-toggle, #members-toggle {
+        width: 40px;
+        height: 40px;
+        padding: 0;
+        font-size: 0; /* Скрываем текст */
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+    }
+    
+    #sidebar-toggle span, #members-toggle span {
+        display: none; /* Скрываем текстовые элементы */
+    }
+}
+
+
+@media (max-width: 480px) {
+    .chat-container {
+        width: calc(100% - 30px); /* Еще уже на маленьких экранах */
+        margin: 60px 15px 5px 15px; /* Отступы: сверху 40px, по бокам 15px, снизу 5px */
+        height: 60vh;
+    }
+
+    .chat-box {
+        height: calc(60vh - 20px); /* Адаптируем высоту под новые отступы */
+        padding: 0px;
+    }
+
+    .message {
+        margin: 8px 10px 6px;
+        padding: 10px;
+    }
+
+    .sidebar, .sidebar-right {
+        width: 80%;
+        max-width: 100%;
+    }
+
+
+    .groups-toggle {
+        order: 1;
+        margin: 0;
+        padding: 0;
+        background: none;
+        box-shadow: none;
+        position: static;
+        width: auto;
+        flex-shrink: 0; /* Предотвращаем сжатие */
+    }
+
+
+    .header {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 5px 0;
+        border-radius: 0;
+    }
+
+    .header-buttons-container {
+        flex-direction: row;
+        align-items: center;
+        flex-wrap: nowrap;
+        justify-content: space-between;
+        padding: 5px 10px;
+        gap: 5px;
+    }
+
+    .username-display {
+        order: 2;
+        margin: 0;
+        padding: 5px 8px;
+        font-size: 12px;
+        max-width: 40%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        background: rgba(255, 255, 255, 0.9);
+        border-radius: 15px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    .auth-buttons {
+        order: 3;
+        margin: 0;
+        gap: 5px;
+    }
+
+    .auth-btn, .logout-btn {
+        padding: 6px 10px;
+        font-size: 11px;
+        min-width: auto;
+        width: auto;
+    }
+
+    .message-input-container {
+        flex-wrap: wrap;
+        flex-direction: row;
+        align-items: flex-end;
+        padding: 10px;
+    }
+
+    .buttons-column {
+        flex-direction: row;
+        order: 2;
+        margin-top: 8px;
+        margin-right: 0;
+        width: 100%;
+        justify-content: center;
+        align-self: flex-end; /* Кнопки справа */
+        margin-top: 5px;
+    }
+
+    #message-input {
+        order: 1;
+        margin: 0;
+        flex-grow: 1;
+        min-height: 50px;
+        margin-right: 10px;
+        max-width: calc(100% - 130px);
+    }
+
+    .send-btn {
+        order: 3;
+    }
+
+    .message.self {
+        margin-left: 20px;
+    }
+
+    .group-item {
+        padding: 12px 15px;
+        margin: 8px;
+    }
+
+    .modal-content {
+        width: 95%;
+        padding: 15px;
+    }
+
+    .modal-buttons {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .modal-buttons button {
+        width: 100%;
+    }
+
+    #sidebar-toggle, 
+    #members-toggle {
+        width: 36px;
+        height: 36px;
+        padding: 0;
+        margin: 0 5px !important;
+        font-size: 18px;
+    }
+
+    .auth-btn, 
+    .logout-btn {
+        padding: 8px 10px;
+        font-size: 11px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .logout-btn {
+        order: 2; /* Кнопка выхода второй */
+        padding: 6px 10px;
+        font-size: 11px;
+        width: auto;
+        height: auto;
+        min-width: 60px;
+        margin-right: 25px;
+    }
+
+    .username-display {
+        order: 1; /* Имя пользователя первым */
+        margin: 0;
+        padding: 5px 8px;
+        font-size: 12px;
+        max-width: 150px; /* Ограничиваем ширину */
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        background: rgba(255, 255, 255, 0.9);
+        border-radius: 15px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        flex-shrink: 0;
+    }
+
+    .user-panel {
+        order: 3;
+        flex-direction: row; /* Располагаем элементы в строку */
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+    }
+
 }
