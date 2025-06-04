@@ -153,5 +153,45 @@
     <audio id="sound-effect" preload="auto">
         <source src="static/Sound/ima-make-u-pop-like-that.mp3" type="audio/mpeg">
     </audio>
+
+    <!-- Модальное окно создания группы -->
+    <div id="create-group-modal" class="custom-modal">
+    <div class="modal-content">
+        <span class="close-modal">&times;</span>
+        <h3>Создать новую группу</h3>
+        <input type="text" id="group-name-input" placeholder="Название группы" autofocus>
+        <div class="modal-buttons">
+        <button id="create-group-cancel">Отмена</button>
+        <button id="create-group-confirm">Создать</button>
+        </div>
+    </div>
+    </div>
+
+    <!-- Модальное окно добавления участника -->
+    <div id="add-member-modal" class="custom-modal">
+    <div class="modal-content">
+        <span class="close-modal">&times;</span>
+        <h3>Добавить участника</h3>
+        <input type="text" id="member-username-input" placeholder="Имя пользователя" autofocus>
+        <div class="modal-buttons">
+        <button id="add-member-cancel">Отмена</button>
+        <button id="add-member-confirm">Добавить</button>
+        </div>
+    </div>
+    </div>
+
+    <!-- Модальное окно подтверждения действий -->
+    <div id="confirmation-modal" class="custom-modal">
+    <div class="modal-content">
+        <span class="close-modal">&times;</span>
+        <h3 id="confirmation-title">Подтвердите действие</h3>
+        <p id="confirmation-message"></p>
+        <div class="modal-buttons">
+        <button id="confirmation-cancel">Отмена</button>
+        <button id="confirmation-confirm">Подтвердить</button>
+        </div>
+    </div>
+    </div>
+
 </body>
 </html>
