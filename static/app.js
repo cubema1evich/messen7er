@@ -96,12 +96,14 @@ document.addEventListener("DOMContentLoaded", function () {
     const createGroupModal = document.getElementById('create-group-modal');
     const addMemberModal = document.getElementById('add-member-modal');
     const confirmationModal = document.getElementById('confirmation-modal');
+    const renameGroupModal = document.getElementById('rename-group-modal');
 
     // Закрытие модалных окон при клике вне 
     window.addEventListener('click', (e) => {
     if (e.target === createGroupModal) createGroupModal.style.display = 'none';
     if (e.target === addMemberModal) addMemberModal.style.display = 'none';
     if (e.target === confirmationModal) confirmationModal.style.display = 'none';
+    if (e.target === renameGroupModal) renameGroupModal.style.display = 'none';
     });
 
     // Закрытие модальныз окок по Escape
@@ -110,6 +112,7 @@ document.addEventListener("DOMContentLoaded", function () {
         createGroupModal.style.display = 'none';
         addMemberModal.style.display = 'none';
         confirmationModal.style.display = 'none';
+        renameGroupModal.style.display = 'none';
     }
     });
     
@@ -1113,10 +1116,55 @@ function viewAttachments(messageElement) {
     }
     
     window.renameGroupPrompt = function(groupId, currentName) {
-        const newName = prompt("Введите новое название группы:", currentName);
-        if(newName && newName.trim() !== currentName) {
-            renameGroup(groupId, newName.trim());
+    const modal = document.getElementById('rename-group-modal');
+    const input = document.getElementById('rename-group-input');
+    
+    // Устанавливаем текущее название группы
+    input.value = currentName;
+    modal.style.display = 'block';
+    input.focus();
+    
+    return new Promise((resolve) => {
+        const confirmBtn = document.getElementById('rename-group-confirm');
+        const cancelBtn = document.getElementById('rename-group-cancel');
+        const closeBtn = modal.querySelector('.close-modal');
+        
+        const cleanup = () => {
+        confirmBtn.removeEventListener('click', confirmHandler);
+        cancelBtn.removeEventListener('click', cancelHandler);
+        closeBtn.removeEventListener('click', cancelHandler);
+        modal.style.display = 'none';
+        input.value = '';
+        };
+        
+        const confirmHandler = () => {
+        const newName = input.value.trim();
+        if (newName) {
+            cleanup();
+            resolve(newName);
+        } else {
+            input.focus();
         }
+        };
+        
+        const cancelHandler = () => {
+        cleanup();
+        resolve(null);
+        };
+        
+        confirmBtn.addEventListener('click', confirmHandler);
+        cancelBtn.addEventListener('click', cancelHandler);
+        closeBtn.addEventListener('click', cancelHandler);
+    }).then(async (newName) => {
+        if (!newName) return;
+        
+        try {
+        await renameGroup(groupId, newName);
+        } catch (error) {
+        console.error("Rename group error:", error);
+        showToast(error.message, 'error');
+        }
+    });
     };
 
     // Новые функции управления группами
@@ -2275,37 +2323,37 @@ function viewAttachments(messageElement) {
     GroupRoles.init();
 
     async function renameGroup(groupId, newName) {
-        try {
-            const res = await fetch('/rename_group', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                },
-                body: JSON.stringify({
-                    group_id: groupId,
-                    new_name: newName
-                })
-            });
-    
-            if (!res.ok) {
-                const error = await res.json();
-                throw new Error(error.error || 'Ошибка при изменении названия');
-            }
-    
-            // Обновляем интерфейс
-            if (currentGroup === groupId) {
-                UI.currentGroupName.textContent = newName;
-            }
-            
-            // Обновляем список групп
-            await loadGroups();
-            showToast('Название группы успешно изменено', 'success');
-    
-        } catch (error) {
-            console.error("Rename group error:", error);
-            showToast(error.message, 'error');
+    try {
+        const res = await fetch('/rename_group', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+            group_id: groupId,
+            new_name: newName
+        })
+        });
+
+        if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Ошибка при изменении названия');
         }
+
+        // Обновляем интерфейс
+        if (currentGroup === groupId) {
+        UI.currentGroupName.textContent = newName;
+        }
+        
+        // Обновляем список групп
+        await loadGroups();
+        showToast('Название группы успешно изменено', 'success');
+
+    } catch (error) {
+        console.error("Rename group error:", error);
+        showToast(error.message, 'error');
+    }
     }
 
     window.removeMemberFromGroup = async function(groupId, username) {
