@@ -91,6 +91,27 @@ document.addEventListener("DOMContentLoaded", function () {
         membersClose: document.getElementById('members-close'),
         membersList: document.getElementById('members-list')
     };
+
+    // Инициализация модальных оконо
+    const createGroupModal = document.getElementById('create-group-modal');
+    const addMemberModal = document.getElementById('add-member-modal');
+    const confirmationModal = document.getElementById('confirmation-modal');
+
+    // Закрытие модалных окон при клике вне 
+    window.addEventListener('click', (e) => {
+    if (e.target === createGroupModal) createGroupModal.style.display = 'none';
+    if (e.target === addMemberModal) addMemberModal.style.display = 'none';
+    if (e.target === confirmationModal) confirmationModal.style.display = 'none';
+    });
+
+    // Закрытие модальныз окок по Escape
+    document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        createGroupModal.style.display = 'none';
+        addMemberModal.style.display = 'none';
+        confirmationModal.style.display = 'none';
+    }
+    });
     
     // Восстановление состояния чата
     const savedChat = JSON.parse(sessionStorage.getItem('currentChat') || 'null');
@@ -585,6 +606,40 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
+    // Функция для показа модалки подтверждения
+    function showConfirmation(title, message) {
+    return new Promise((resolve) => {
+        document.getElementById('confirmation-title').textContent = title;
+        document.getElementById('confirmation-message').textContent = message;
+        confirmationModal.style.display = 'block';
+        
+        const confirmBtn = document.getElementById('confirmation-confirm');
+        const cancelBtn = document.getElementById('confirmation-cancel');
+        const closeBtn = confirmationModal.querySelector('.close-modal');
+        
+        const cleanup = () => {
+        confirmBtn.removeEventListener('click', confirmHandler);
+        cancelBtn.removeEventListener('click', cancelHandler);
+        closeBtn.removeEventListener('click', cancelHandler);
+        confirmationModal.style.display = 'none';
+        };
+        
+        const confirmHandler = () => {
+        cleanup();
+        resolve(true);
+        };
+        
+        const cancelHandler = () => {
+        cleanup();
+        resolve(false);
+        };
+        
+        confirmBtn.addEventListener('click', confirmHandler);
+        cancelBtn.addEventListener('click', cancelHandler);
+        closeBtn.addEventListener('click', cancelHandler);
+    });
+    }
+
 function viewAttachments(messageElement) {
     const attachments = messageElement.querySelector('.attachments');
     if (!attachments) return;
@@ -947,32 +1002,64 @@ function viewAttachments(messageElement) {
     }
 
     async function createGroup() {
-        const groupName = prompt("Введите название группы:");
-        if (!groupName) return;
+    createGroupModal.style.display = 'block';
     
-        try {
-            const res = await fetch('/create_group', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ name: groupName })
-            });
-            
-            if (res.status === 400) {
-                const error = await res.json();
-                alert(error.error);
-                return;
-            }
-            
-            if (res.ok) {
-                await loadGroups();
-                showToast("Группа создана успешно!", 'success');
-                debouncedUpdate(); // Запускаем проверку обновлений
-            }
-
-        } catch (error) {
-            console.error("Error creating group:", error);
-            alert("Ошибка при создании группы");
+    const nameInput = document.getElementById('group-name-input');
+    nameInput.focus();
+    
+    return new Promise((resolve) => {
+        const confirmBtn = document.getElementById('create-group-confirm');
+        const cancelBtn = document.getElementById('create-group-cancel');
+        const closeBtn = createGroupModal.querySelector('.close-modal');
+        
+        const cleanup = () => {
+        confirmBtn.removeEventListener('click', confirmHandler);
+        cancelBtn.removeEventListener('click', cancelHandler);
+        closeBtn.removeEventListener('click', cancelHandler);
+        createGroupModal.style.display = 'none';
+        nameInput.value = '';
+        };
+        
+        const confirmHandler = () => {
+        const groupName = nameInput.value.trim();
+        if (groupName) {
+            cleanup();
+            resolve(groupName);
+        } else {
+            nameInput.focus();
         }
+        };
+        
+        const cancelHandler = () => {
+        cleanup();
+        resolve(null);
+        };
+        
+        confirmBtn.addEventListener('click', confirmHandler);
+        cancelBtn.addEventListener('click', cancelHandler);
+        closeBtn.addEventListener('click', cancelHandler);
+    }).then(async (groupName) => {
+        if (!groupName) return;
+        
+        try {
+        const res = await fetch('/create_group', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ name: groupName })
+        });
+        
+        if (res.ok) {
+            await loadGroups();
+            showToast("Группа создана успешно!", 'success');
+        } else {
+            const error = await res.json();
+            showToast(error.error || "Ошибка при создании группы", 'error');
+        }
+        } catch (error) {
+        console.error("Error creating group:", error);
+        showToast("Ошибка соединения с сервером", 'error');
+        }
+    });
     }
 
     async function loadGroups() {
@@ -1056,98 +1143,113 @@ function viewAttachments(messageElement) {
         document.addEventListener('click', closeHandler);
     };
     
-    window.addMemberPrompt = async function(groupId) {
-        const username = prompt("Введите имя пользователя для добавления:");
+    window.addMemberPrompt = function(groupId) {
+    addMemberModal.style.display = 'block';
+    const usernameInput = document.getElementById('member-username-input');
+    usernameInput.focus();
+    
+    return new Promise((resolve) => {
+        const confirmBtn = document.getElementById('add-member-confirm');
+        const cancelBtn = document.getElementById('add-member-cancel');
+        const closeBtn = addMemberModal.querySelector('.close-modal');
+        
+        const cleanup = () => {
+        confirmBtn.removeEventListener('click', confirmHandler);
+        cancelBtn.removeEventListener('click', cancelHandler);
+        closeBtn.removeEventListener('click', cancelHandler);
+        addMemberModal.style.display = 'none';
+        usernameInput.value = '';
+        };
+        
+        const confirmHandler = () => {
+        const username = usernameInput.value.trim();
+        if (username) {
+            cleanup();
+            resolve(username);
+        } else {
+            usernameInput.focus();
+        }
+        };
+        
+        const cancelHandler = () => {
+        cleanup();
+        resolve(null);
+        };
+        
+        confirmBtn.addEventListener('click', confirmHandler);
+        cancelBtn.addEventListener('click', cancelHandler);
+        closeBtn.addEventListener('click', cancelHandler);
+    }).then(async (username) => {
         if (!username) return;
-    
+        
         try {
-            const res = await fetch('/add_to_group', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    group_id: groupId,
-                    username: username,
-                    role: 'member'
-                })
-            });
-            
-            if (!res.ok) {
-                const error = await res.json();
-                throw new Error(error.error || 'Ошибка добавления пользователя');
-            }
-    
+        const res = await fetch('/add_to_group', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+            group_id: groupId,
+            username: username,
+            role: 'member'
+            })
+        });
+        
+        if (res.ok) {
             showToast("Пользователь успешно добавлен!", 'success');
-            
             await loadGroups();
             
             if (currentGroup === groupId) {
-                await loadParticipants();
+            await loadParticipants();
             }
-            
-            const groupElement = document.querySelector(`.group-item[data-group-id="${groupId}"]`);
-            if (groupElement) {
-                groupElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                groupElement.classList.add('highlight');
-                setTimeout(() => groupElement.classList.remove('highlight'), 2000);
-            }
-        } catch (error) {
-            console.error("Error adding member:", error);
-            showToast(error.message, 'error');
-            
-            // Если ошибка связана с добавлением самого себя, показываем особое сообщение
-            if (error.message.includes('самого себя')) {
-                showToast('Вы не можете добавить самого себя в группу', 'error');
-            }
+        } else {
+            const error = await res.json();
+            showToast(error.error || "Ошибка добавления пользователя", 'error');
         }
+        } catch (error) {
+        console.error("Error adding member:", error);
+        showToast("Ошибка соединения с сервером", 'error');
+        }
+    });
     };
-    
+        
     window.leaveGroupPrompt = async function(groupId) {
-        if (confirm("Вы уверены, что хотите покинуть группу?")) {
-            try {
-                const res = await fetch('/leave_group', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${localStorage.getItem('token')}`
-                    },
-                    body: JSON.stringify({ group_id: groupId })
-                });
-                
-                if (!res.ok) {
-                    const error = await res.json().catch(() => ({}));
-                    throw new Error(error.error || 'Ошибка при выходе из группы');
-                }
+    const confirmed = await showConfirmation(
+        "Покинуть группу", 
+        "Вы уверены, что хотите покинуть группу? Это действие нельзя отменить."
+    );
     
-                // Если мы находимся в этой группе, переключаем на общий чат
-                if (currentGroup === groupId) {
-                    currentGroup = null;
-                    sessionStorage.removeItem('currentChat');
-                    UI.currentGroupName.textContent = 'Общий чат';
-                    UI.chatBox.innerHTML = '';
-                    lastTimestamp = 0;
-                }
-                
-                // Обновляем список групп
-                await loadGroups();
-                
-                // Загружаем сообщения (либо общий чат, либо текущий чат)
-                if (currentGroup === null) {
-                    await loadMessages();
-                }
-    
-            } catch (error) {
-                console.error("Ошибка выхода:", error);
-                alert(error.message || 'Ошибка соединения с сервером');
-                
-                // В любом случае переключаем на общий чат
-                currentGroup = null;
-                sessionStorage.removeItem('currentChat');
-                UI.currentGroupName.textContent = 'Общий чат';
-                loadGroups();
-                loadMessages();
+    if (confirmed) {
+        try {
+        const res = await fetch('/leave_group', {
+            method: 'POST',
+            headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({ group_id: groupId })
+        });
+        
+        if (res.ok) {
+            if (currentGroup === groupId) {
+            currentGroup = null;
+            sessionStorage.removeItem('currentChat');
+            UI.currentGroupName.textContent = 'Общий чат';
+            UI.chatBox.innerHTML = '';
+            lastTimestamp = 0;
+            loadMessages();
             }
+            await loadGroups();
+            showToast("Вы покинули группу", 'success');
+        } else {
+            const error = await res.json();
+            throw new Error(error.error || 'Ошибка при выходе из группы');
+        }
+        } catch (error) {
+        console.error("Ошибка выхода:", error);
+        showToast(error.message || 'Ошибка соединения с сервером', 'error');
         }
     }
+    };
+
 
         
     window.selectGroup = async function(groupId, groupName, element) {
@@ -2207,54 +2309,48 @@ function viewAttachments(messageElement) {
     }
 
     window.removeMemberFromGroup = async function(groupId, username) {
-        if (!confirm(`Вы уверены, что хотите исключить ${username} из группы?`)) {
-            return;
-        }
+    const confirmed = await showConfirmation(
+        "Исключить участника", 
+        `Вы уверены, что хотите исключить ${username} из группы? Это действие нельзя отменить.`
+    );
     
+    if (confirmed) {
         try {
-            const res = await fetch('/remove_from_group', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                },
-                body: JSON.stringify({
-                    group_id: groupId,
-                    username: username
-                })
-            });
-    
-            const data = await res.json();
-            
-            if (!res.ok) {
-                throw new Error(data.error || 'Ошибка при исключении');
-            }
-    
-            // Обновляем интерфейс
-            await loadParticipants();
-            showToast(`Пользователь ${username} исключен из группы`, 'success');
-    
-            // Если исключен текущий пользователь, переключаем на общий чат
-            if (data.is_current_user) {
-                currentGroup = null;
-                sessionStorage.removeItem('currentChat');
-                UI.currentGroupName.textContent = 'Общий чат';
-                UI.chatBox.innerHTML = '';
-                lastTimestamp = 0;
-                loadMessages();
-                
-                // Принудительно обновляем список групп
-                await loadGroups();
-            } else if (currentGroup === groupId) {
-                // Если мы в этой группе, просто обновляем участников
-                await loadParticipants();
-            }
-    
+        const res = await fetch('/remove_from_group', {
+            method: 'POST',
+            headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({
+            group_id: groupId,
+            username: username
+            })
+        });
+        
+        const data = await res.json();
+        if (!res.ok) {
+            throw new Error(data.error || 'Ошибка при исключении');
+        }
+        
+        await loadParticipants();
+        showToast(`Пользователь ${username} исключен из группы`, 'success');
+        
+        if (data.is_current_user) {
+            currentGroup = null;
+            sessionStorage.removeItem('currentChat');
+            UI.currentGroupName.textContent = 'Общий чат';
+            UI.chatBox.innerHTML = '';
+            lastTimestamp = 0;
+            loadMessages();
+            await loadGroups();
+        }
         } catch (error) {
-            console.error("Remove member error:", error);
-            showToast(error.message, 'error');
+        console.error("Remove member error:", error);
+        showToast(error.message, 'error');
         }
     }
+    };
 
     let lastGroupsCount = 0;
 
