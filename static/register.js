@@ -32,7 +32,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function isValidUsername(username) {
-        const regex = /^[a-zA-Zа-яА-Я0-9_-]{3,20}$/u;
+        const regex = /^[a-zA-Zа-яА-Я0-9_-]{3,15}$/u;
         return regex.test(username);
     }
 
@@ -48,7 +48,7 @@ document.addEventListener("DOMContentLoaded", function () {
             usernameInput.classList.add('input-error');
             isValid = false;
         } else if (!isValidUsername(username)) {
-            showAlert('Имя может содержать только буквы, цифры, дефисы и подчёркивания (3-20 символов)');
+            showAlert('Имя может содержать только буквы, цифры, дефисы и подчёркивания (3-15 символов)');
             usernameInput.classList.add('input-error');
             isValid = false;
         }
