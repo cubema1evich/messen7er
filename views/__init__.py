@@ -2,7 +2,7 @@ from collections import namedtuple
 import json
 import logging
 
-
+from .crypro import *
 from .base import *
 from .auth import *
 from .error import *
@@ -20,5 +20,5 @@ __all__ = [
     'DeleteMessageView', 'EditMessageView', 'GetGroupMessagesView',
     'SendPrivateMessageView', 'GetPrivateMessagesView', 'CheckPrivateChatsUpdatesView', 'CheckMessagesView',
     'CheckEditedMessagesView', 'SearchMessagesView', 'SearchUsersView',
-    'GetUserIdView', 'GetPrivateChatsView'
+    'GetUserIdView', 'GetPrivateChatsView', 'SetSessionKeyView'
 ]
