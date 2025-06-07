@@ -1,4 +1,4 @@
-document.addEventListener("DOMContentLoaded", function () {
+document.addEventListener("DOMContentLoaded", async function () {
 
     const updateAuthButtons = () => {
         const authButtons = document.getElementById('auth-buttons');
@@ -64,6 +64,14 @@ document.addEventListener("DOMContentLoaded", function () {
         perPage: 20,
         sort: 'date'
     };
+    let sessionKey = null;
+    let serverPublicKey = null;
+
+    async function fetchServerPublicKey() {
+        const res = await fetch('/public_key');
+        serverPublicKey = await res.text();
+    }
+    
 
     // Элементы интерфейса
     const UI = {
@@ -182,7 +190,7 @@ document.addEventListener("DOMContentLoaded", function () {
     UI.sidebarClose.addEventListener('click', function(e) {
         e.stopPropagation();
         UI.sidebar.classList.remove('active');
-        UI.sidebarToggle.style.display = 'block'; // Показываем кнопку "Группы"
+        UI.sidebarToggle.style.display = 'block'; 
     });
 
     UI.membersClose.addEventListener('click', function(e) {
@@ -195,7 +203,18 @@ document.addEventListener("DOMContentLoaded", function () {
     loadGroups();
     loadPrivateChats();
     setupEventListeners();
-    // В app.js замените setInterval на это:
+    generateSessionKey();
+    await restoreSessionKey();
+    if (!sessionKey) await generateSessionKey();
+    await fetchServerPublicKey();
+
+    console.log("Original key:", serverPublicKey);
+        const pemContents = serverPublicKey
+            .replace('-----BEGIN PUBLIC KEY-----', '')
+            .replace('-----END PUBLIC KEY-----', '')
+            .replace(/\s+/g, '');
+        console.log("Cleaned key:", pemContents);
+
     let isTabActive = true;
 
     window.addEventListener('focus', () => {
@@ -337,11 +356,20 @@ document.addEventListener("DOMContentLoaded", function () {
             const data = await res.json();
             
             if (data.messages?.length > 0) {
-                displayMessages(data.messages);
-                lastTimestamp = data.timestamp;
+                // Расшифровываем сообщения если есть ключ
+                if (sessionKey) {
+                    for (const msg of data.messages) {
+                        if (
+                            typeof msg.message_text === 'string' &&
+                            msg.message_text.startsWith('{') &&
+                            msg.message_text.includes('"iv":') &&
+                            msg.message_text.includes('"data":')
+                        ) {
+                            msg.message_text = await decryptMessage(msg.message_text);
+                        }
+                    }
+                }
             }
-    
-            
             if (res.status === 401) {
                 window.location.href = '/login';
                 return;
@@ -372,7 +400,8 @@ document.addEventListener("DOMContentLoaded", function () {
                 displayMessages(data.messages);
                 lastTimestamp = data.timestamp;
             }
-        } catch (error) {
+        }
+        catch (error) {
             console.error("Error loading messages:", error);
             
             if (error.message.includes('403') && currentGroup) {
@@ -1359,6 +1388,192 @@ function viewAttachments(messageElement) {
             }
         });
     }
+
+    async function encryptFile(file) {
+        if (!sessionKey) return file;
+        
+        try {
+            const iv = window.crypto.getRandomValues(new Uint8Array(12));
+            const fileData = await file.arrayBuffer();
+            
+            const encrypted = await window.crypto.subtle.encrypt(
+                { name: "AES-GCM", iv },
+                sessionKey,
+                fileData
+            );
+            
+            // Создаем новый файл с зашифрованными данными
+            return new File([encrypted], file.name, {
+                type: 'application/octet-stream',
+                lastModified: file.lastModified
+            });
+        } catch (error) {
+            console.error("File encryption error:", error);
+            return file;
+        }
+    }
+
+    async function generateSessionKey() {
+        try {
+            // Генерация случайного сессионного ключа (256 бит)
+            sessionKey = await window.crypto.subtle.generateKey(
+                { name: "AES-GCM", length: 256 },
+                true,
+                ["encrypt", "decrypt"]
+            );
+                // Сохраняем ключ в sessionStorage
+            const exported = await window.crypto.subtle.exportKey("raw", sessionKey);
+            sessionStorage.setItem('sessionKey', arrayBufferToBase64(exported));
+            console.log("Сессионный ключ сгенерирован");
+            sendSessionKeyToServer();
+        } catch (error) {
+            console.error("Ошибка генерации ключа:", error);
+        }
+    }
+        
+    // При загрузке страницы пробуем восстановить ключ
+    async function restoreSessionKey() {
+        const keyB64 = sessionStorage.getItem('sessionKey');
+        if (keyB64) {
+            const keyBuf = base64ToArrayBuffer(keyB64);
+            sessionKey = await window.crypto.subtle.importKey(
+                "raw",
+                keyBuf,
+                { name: "AES-GCM" },
+                true,
+                ["encrypt", "decrypt"]
+            );
+        }
+    }
+
+
+    async function sendSessionKeyToServer() {
+        try {
+            const exportedKey = await window.crypto.subtle.exportKey("raw", sessionKey);
+            const exportedKeyBuffer = new Uint8Array(exportedKey);
+            
+            if (!serverPublicKey) {
+            throw new Error("Публичный ключ сервера не загружен");
+            }
+            const pemHeader = "-----BEGIN PUBLIC KEY-----";
+            const pemFooter = "-----END PUBLIC KEY-----";
+            
+            let pemContents = serverPublicKey
+                .split(pemHeader)[1]  // Берем часть после заголовка
+                .split(pemFooter)[0]  // Берем часть перед футером
+                .replace(/\s+/g, ''); // Удаляем ВСЕ пробелы и переносы
+
+            console.log("Cleaned PEM contents:", pemContents);
+            console.log("PEM length:", pemContents.length);
+
+            const binaryDer = base64ToArrayBuffer(pemContents);
+            
+            const importedPublicKey = await window.crypto.subtle.importKey(
+                "spki",
+                binaryDer,
+                { name: "RSA-OAEP", hash: "SHA-256" },
+                false,
+                ["encrypt"]
+            );
+            
+            const encryptedKey = await window.crypto.subtle.encrypt(
+                { name: "RSA-OAEP" },
+                importedPublicKey,
+                exportedKeyBuffer
+            );
+            
+            const encryptedKeyBase64 = arrayBufferToBase64(encryptedKey);
+            
+            const response = await fetch('/set_session_key', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    key: encryptedKeyBase64 
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Server responded with status ${response.status}`);
+            }
+            
+            console.log("Сессионный ключ успешно отправлен на сервер");
+        } catch (error) {
+            console.error("Ошибка отправки ключа:", error);
+            throw error;
+        }
+    }
+
+    function base64ToArrayBuffer(base64) {
+        try {
+            const binaryString = atob(base64);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes;
+        } catch (e) {
+            console.error("Error in base64 decoding:", e);
+            throw new Error("Invalid base64 string");
+        }
+    }
+
+    function arrayBufferToBase64(buffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
+    }
+
+    async function encryptMessage(message) {
+        if (!sessionKey) {
+            console.error("Сессионный ключ не установлен");
+            return message;
+        }
+        
+        try {
+            const iv = window.crypto.getRandomValues(new Uint8Array(12));
+            const encoded = new TextEncoder().encode(message);
+            
+            const encrypted = await window.crypto.subtle.encrypt(
+                { name: "AES-GCM", iv },
+                sessionKey,
+                encoded
+            );
+            
+            return JSON.stringify({
+                iv: arrayBufferToBase64(iv),
+                data: arrayBufferToBase64(encrypted)
+            });
+        } catch (error) {
+            console.error("Ошибка шифрования:", error);
+            return message;
+        }
+    }
+
+    async function decryptMessage(encryptedData) {
+        if (!sessionKey || typeof encryptedData !== 'string') {
+            return encryptedData;
+        }
+        
+        try {
+            const { iv, data } = JSON.parse(encryptedData);
+            const ivBuffer = base64ToArrayBuffer(iv);
+            const dataBuffer = base64ToArrayBuffer(data);
+            
+            const decrypted = await window.crypto.subtle.decrypt(
+                { name: "AES-GCM", iv: ivBuffer },
+                sessionKey,
+                dataBuffer
+            );
+            
+            return new TextDecoder().decode(decrypted);
+        } catch (error) {
+            console.error("Ошибка расшифровки:", error);
+            return encryptedData;
+        }
+    }
     
     async function sendMessage(e) {
         e.preventDefault();
@@ -1375,23 +1590,28 @@ function viewAttachments(messageElement) {
             UI.messageInput.value = '';
             return;
         }
-    
+
         const tempId = Date.now();
         
         try {
+            let encryptedMsg = message;
+            if (sessionKey && message) {
+                encryptedMsg = await encryptMessage(message);
+            }
+            
             // Показываем временное сообщение
-            if (message || files.length > 0) {
-                const tempMessage = {
-                    id: tempId,
-                    sender: username,
-                    message_text: message,
-                    timestamp: Math.floor(Date.now()/1000),
-                    temp: true,
-                    type: currentPrivateChat ? 'private' : (currentGroup ? 'group' : 'general'),
-                    attachments: []
-                };
-                
-                // Добавляем только уникальные файлы во временное сообщение
+            const tempMessage = {
+                id: tempId,
+                sender: username,
+                message_text: message, // Показываем исходный текст локально
+                timestamp: Math.floor(Date.now()/1000),
+                temp: true,
+                type: currentPrivateChat ? 'private' : (currentGroup ? 'group' : 'general'),
+                attachments: []
+            };
+
+            // Добавляем файлы во временное сообщение
+            if (files.length > 0) {
                 const uniqueFiles = new Set();
                 Array.from(files).forEach(file => {
                     const key = `${file.name}-${file.size}`;
@@ -1404,13 +1624,16 @@ function viewAttachments(messageElement) {
                         uniqueFiles.add(key);
                     }
                 });
-                
-                displayMessages([tempMessage]);
-            }    
-    
-            const formData = new FormData();
-            if (message) formData.append('message', message);
+            }
             
+            // Показываем сообщение сразу
+            displayMessages([tempMessage]);
+            
+            // Формируем FormData для отправки
+            const formData = new FormData();
+            if (encryptedMsg) formData.append('message', encryptedMsg);
+
+            // Добавляем файлы в FormData
             if (files.length > 0) {
                 const uniqueFiles = new Set();
                 Array.from(files).forEach(file => {
@@ -1421,7 +1644,7 @@ function viewAttachments(messageElement) {
                     }
                 });
             }
-    
+
             if (currentGroup) {
                 // Проверка доступа к группе
                 const accessRes = await fetch(`/check_group_access?group_id=${currentGroup}`);
@@ -1436,7 +1659,7 @@ function viewAttachments(messageElement) {
             } else if (currentPrivateChat) {
                 formData.append('receiver', currentPrivateChat);
             }
-    
+
             // Отправка сообщения
             const res = await fetch('/send_message', {
                 method: 'POST',
@@ -1444,12 +1667,12 @@ function viewAttachments(messageElement) {
             });
             
             if (!res.ok) throw new Error(await res.text());
-    
+
             // Удаляем временное сообщение
             const tempElement = UI.chatBox.querySelector(`[data-id="${tempId}"]`);
             if (tempElement) tempElement.remove();
-    
-            // ОБНОВЛЯЕМ СПИСОК ЧАТОВ ПОСЛЕ УСПЕШНОЙ ОТПРАВКИ
+
+            // Обновляем список чатов после успешной отправки
             await loadPrivateChats();
             
             // Если это новый чат, добавляем его в список
@@ -1465,7 +1688,7 @@ function viewAttachments(messageElement) {
                     renderPrivateChats([newChat, ...chats.chats]);
                 }
             }
-    
+
         } catch (error) {
             const tempElement = UI.chatBox.querySelector(`[data-id="${tempId}"]`);
             if (tempElement) tempElement.remove();
@@ -1585,6 +1808,18 @@ function viewAttachments(messageElement) {
             const data = await res.json();
             
             if (data.messages?.length > 0) {
+                if (sessionKey) {
+                for (const msg of data.messages) {
+                    if (
+                        typeof msg.message_text === 'string' &&
+                        msg.message_text.startsWith('{') &&
+                        msg.message_text.includes('"iv":') &&
+                        msg.message_text.includes('"data":')
+                    ) {
+                        msg.message_text = await decryptMessage(msg.message_text);
+                    }
+                }
+            }
                 displayMessages(data.messages);
                 lastTimestamp = data.timestamp;
             }
@@ -1883,7 +2118,20 @@ function viewAttachments(messageElement) {
                 }
                 return response.json();
             })
-            .then(data => {
+            .then(async data => {
+                 if (sessionKey) {
+                    for (const msg of data.messages) {
+                        if (
+                            typeof msg.text === 'string' &&
+                            msg.text.startsWith('{') &&
+                            msg.text.includes('"iv":') &&
+                            msg.text.includes('"data":')
+                        ) {
+                            msg.text = await decryptMessage(msg.text);
+                        }
+                    }
+                }
+
                 if (data.messages.length === 0) {
                     resultsContainer.innerHTML = `
                         <p>Сообщений не найдено</p>
