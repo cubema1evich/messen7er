@@ -2,7 +2,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const loginForm = document.getElementById("login-form");
 
     function isValidUsername(username) {
-        const regex = /^[a-zA-Zа-яА-Я0-9_-]{3,20}$/u;
+        const regex = /^[a-zA-Zа-яА-Я0-9_-]{3,15}$/u;
         return regex.test(username);
     }
 
@@ -29,7 +29,7 @@ document.addEventListener("DOMContentLoaded", function () {
         const requestBody = new URLSearchParams({ username, password });
 
         if (!isValidUsername(username)) {
-            showAlert('Имя пользователя может содержать только:<br>• Буквы (рус/англ)<br>• Цифры<br>• Дефисы и подчеркивания<br>• Длину от 3 до 20 символов');
+            showAlert('Имя пользователя может содержать только:<br>• Буквы (рус/англ)<br>• Цифры<br>• Дефисы и подчеркивания<br>• Длину от 3 до 15 символов');
             return;
         }
 
