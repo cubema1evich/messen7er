@@ -1,4 +1,5 @@
 *.pyc
+*.pem
 __pycache__/*.pyc
 data.db
 /static/uploads
