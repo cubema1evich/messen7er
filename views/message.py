@@ -3,6 +3,12 @@ import json
 import time
 import os 
 import logging
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives import padding
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
+import base64
 
 from urllib.parse import parse_qs
 from mimes import get_mime
@@ -10,19 +16,76 @@ from webob import Request
 from werkzeug.utils import secure_filename
 from utils import *
 from .base import View, json_response, forbidden_response
+from .crypro import *
 from models.MessageModel import *
 from models.UserModel import *
 
+SERVER_PRIVATE_KEY = None
+USER_SESSION_KEYS = {}
+
+
+def generate_keys_if_not_exist():
+    if not os.path.exists('server_private.pem'):
+        # Генерируем приватный ключ
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+        )
+        
+        # Сохраняем приватный ключ
+        with open('server_private.pem', 'wb') as f:
+            f.write(private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            ))
+        
+        # Сохраняем публичный ключ
+        with open('server_public.pem', 'wb') as f:
+            f.write(private_key.public_key().public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            ))
+
+# Вызываем перед загрузкой ключа
+generate_keys_if_not_exist()
+
+def load_private_key():
+    global SERVER_PRIVATE_KEY
+    try:
+        with open('server_private.pem', 'rb') as key_file:
+            SERVER_PRIVATE_KEY = serialization.load_pem_private_key(
+                key_file.read(),
+                password=None,
+                backend=default_backend()
+            )
+    except Exception as e:
+        logging.error(f"Failed to load private key: {str(e)}")
+        raise
+
+load_private_key()
 
 class GetMessageView(View):
     def response(self, environ, start_response):
         try:
-            # Парсинг и валидация параметров
+            request = Request(environ)
             query_params = parse_qs(environ.get('QUERY_STRING', ''))
             timestamp = self._parse_timestamp(query_params)
+            user_id = request.cookies.get('user_id')  # Получаем user_id из куки
             
             # Получаем сообщения из модели
             messages = MessageModel.get_general_messages(timestamp)
+
+            # Если запрошено шифрование
+            encrypt = query_params.get('encrypt', ['false'])[0] == 'true'
+            
+            if encrypt and user_id:
+                for msg in messages:
+                    if 'message_text' in msg:
+                        msg['message_text'] = {
+                            'encrypted': True,
+                            'data': encrypt_message_for_user(msg['message_text'], user_id)
+                        }
                 
             return json_response({
                 'messages': messages,
@@ -51,6 +114,44 @@ class GetMessageView(View):
         return old_timestamp
 
 class SendMessageView(View):
+    def decrypt_file(self, file_data, session_key):
+        try:
+            # Первые 12 байт - IV, остальное - зашифрованные данные
+            iv = file_data[:12]
+            ciphertext = file_data[12:]
+            
+            cipher = Cipher(
+                algorithms.AES(session_key),
+                modes.GCM(iv),
+                backend=default_backend()
+            )
+            decryptor = cipher.decryptor()
+            return decryptor.update(ciphertext) + decryptor.finalize()
+        except Exception as e:
+            logging.error(f"File decryption error: {str(e)}")
+            return file_data
+        
+    def decrypt_message(self, encrypted_data, session_key):
+        try:
+            data = json.loads(encrypted_data)
+            iv = base64.b64decode(data['iv'])
+            ciphertext = base64.b64decode(data['data'])
+            
+            # Создаем cipher объект
+            cipher = Cipher(
+                algorithms.AES(session_key),
+                modes.GCM(iv),
+                backend=default_backend()
+            )
+            decryptor = cipher.decryptor()
+            
+            # Расшифровываем сообщение
+            decrypted = decryptor.update(ciphertext) + decryptor.finalize()
+            return decrypted.decode('utf-8')
+        except Exception as e:
+            logging.error(f"Decryption error: {str(e)}")
+            return f"[Ошибка расшифровки: {str(e)}]"
+    
     def response(self, environ, start_response):
         try:
             request = Request(environ)
@@ -69,6 +170,14 @@ class SendMessageView(View):
                     start_response, 
                     '400 Bad Request'
                 )
+            
+            encrypted_message = post_data.get('message', '')
+            session_key = USER_SESSION_KEYS.get(user_id)
+                
+            if encrypted_message and session_key:
+                message = self.decrypt_message(encrypted_message, session_key)
+            else:
+                message = encrypted_message
             
             # Не сохраняем если нет ни текста, ни файлов
             if not message and not files:
@@ -113,6 +222,7 @@ class SendMessageView(View):
                 raise Exception("Failed to create message")
 
             # Обрабатываем файлы
+
             if files:
                 unique_files = set()
                 upload_folder = os.path.join('static', 'uploads')
@@ -120,8 +230,28 @@ class SendMessageView(View):
                 
                 for file in files:
                     if file.filename and file.file:
-                        file_info = MessageModel.save_uploaded_file(file, upload_folder)
-                        if file_info and file_info['path'] not in unique_files:
+                        file_data = file.file.read()
+                        
+                        if session_key:
+                            try:
+                                file_data = self.decrypt_file(file_data, session_key)
+                            except Exception as e:
+                                logging.error(f"Failed to decrypt file: {str(e)}")
+                        
+                        # Сохраняем файл
+                        filename = secure_filename(file.filename)
+                        file_path = os.path.join(upload_folder, filename)
+                        
+                        with open(file_path, 'wb') as f:
+                            f.write(file_data)
+                        
+                        file_info = {
+                            'path': f'/static/uploads/{filename}',
+                            'mime_type': file.type,
+                            'filename': filename
+                        }
+                        
+                        if file_info['path'] not in unique_files:
                             unique_files.add(file_info['path'])
                             MessageModel.add_attachment(
                                 message_type=message_type,
