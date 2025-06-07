@@ -203,10 +203,10 @@ document.addEventListener("DOMContentLoaded", async function () {
     loadGroups();
     loadPrivateChats();
     setupEventListeners();
-    generateSessionKey();
+    await fetchServerPublicKey();
     await restoreSessionKey();
     if (!sessionKey) await generateSessionKey();
-    await fetchServerPublicKey();
+    
 
     console.log("Original key:", serverPublicKey);
         const pemContents = serverPublicKey
@@ -2122,6 +2122,14 @@ function viewAttachments(messageElement) {
                  if (sessionKey) {
                     for (const msg of data.messages) {
                         if (
+                            typeof msg.message_text === 'string' &&
+                            msg.message_text.startsWith('{') &&
+                            msg.message_text.includes('"iv":') &&
+                            msg.message_text.includes('"data":')
+                        ) {
+                            msg.text = await decryptMessage(msg.message_text);
+                        }
+                        if (
                             typeof msg.text === 'string' &&
                             msg.text.startsWith('{') &&
                             msg.text.includes('"iv":') &&
@@ -2153,7 +2161,7 @@ function viewAttachments(messageElement) {
                                 <span class="sender">${msg.sender}</span>
                                 <span class="time">${new Date(msg.timestamp * 1000).toLocaleString()}</span>
                             </div>
-                            <div class="search-result-text">${msg.text}</div>
+                            <div class="search-result-text">${msg.text || msg.message_text || ''}</div>
                         </div>
                     `).join('')}
                 `;
