@@ -1,5 +1,5 @@
 from views import (
-    View, IndexView, GetUserIdView, GetMessageView, SendMessageView,
+    View, IndexView, GetUserIdView, GetMessageView, SendMessageView, SetSessionKeyView, PublicKeyView,
     RegisterView, LoginView, GetGroupMessagesView, CheckMessagesView,
     CheckEditedMessagesView, CreateGroupView, AddToGroupView, LeaveGroupView,
     GetGroupsView, SendPrivateMessageView, GetPrivateMessagesView,
@@ -17,6 +17,8 @@ routes = {
     '/get_user_id': GetUserIdView,
     '/get_messages': GetMessageView,
     '/send_message': SendMessageView,
+    '/set_session_key' : SetSessionKeyView,
+    '/public_key': PublicKeyView,
     '/register': RegisterView,
     '/login': LoginView,
     '/get_group_messages': GetGroupMessagesView,
