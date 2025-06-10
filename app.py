@@ -188,3 +188,25 @@ def app(environ, start_response):
         logging.error(f"Server error: {str(e)}", exc_info=True)
         error_view = InternalServerErrorView('/500')
         return error_view.response(environ, start_response)
+
+def serve_static(environ, start_response):
+    """Обработка статических файлов."""
+    file_path = environ['REQUEST_URI'][1:]
+    
+    # Специальная обработка для публичного ключа
+    if file_path == 'public_key.pem':
+        with open('public_key.pem', 'rb') as f:
+            data = f.read()
+        start_response('200 OK', [('Content-Type', 'application/x-pem-file')])
+        return [data]
+    
+    if not os.path.exists(file_path):
+        start_response('404 Not Found', [('Content-Type', 'text/plain')])
+        return [b'File not found']
+    
+    with open(file_path, 'rb') as f:
+        data = f.read()
+    
+    mime_type = get_mime(file_path)
+    start_response('200 OK', [('Content-Type', mime_type)])
+    return [data]

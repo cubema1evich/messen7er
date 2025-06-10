@@ -3,5 +3,5 @@ from .MessageModel import *
 from .UserModel import *
 
 __all__ = [
-    'GroupModel' , 'MessageModel', 'UserModel'
+    'GroupModel' , 'MessageModel', 'UserModel', 'MessageEncryptor'
 ]

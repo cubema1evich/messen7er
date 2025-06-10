@@ -1,3 +1,4 @@
+import base64
 import os
 import logging
 import hashlib
@@ -7,6 +8,9 @@ from collections import defaultdict
 from contextlib import contextmanager
 from utils import get_db_cursor
 from datetime import datetime
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import padding
 
 class MessageModel:
     @staticmethod
@@ -78,7 +82,12 @@ class MessageModel:
             return MessageModel._process_messages(cursor)
 
     @staticmethod
-    def get_private_messages(user_id: int, other_user_id: int, timestamp: int) -> List[Dict]:
+    def get_private_messages(
+        user_id: int,
+        other_user_id: int,
+        timestamp: int,
+        session_key: Optional[bytes] = None
+    ) -> List[Dict]:
         """
         Получает приватные сообщения между пользователями новее указанного timestamp
         
@@ -91,7 +100,6 @@ class MessageModel:
             Список сообщений с правильными полями sender и message_text
         """
         with get_db_cursor() as cursor:
-            # Сначала получаем ID собеседника, если передан username
             if isinstance(other_user_id, str):
                 cursor.execute("SELECT id FROM users WHERE username = ?", (other_user_id,))
                 other_user = cursor.fetchone()
@@ -123,13 +131,28 @@ class MessageModel:
             for row in cursor.fetchall():
                 msg_id = row[0]
                 if msg_id not in messages:
-                    messages[msg_id] = {
-                        'id': msg_id,
-                        'sender': row[2],
-                        'message_text': row[1],
-                        'timestamp': row[3],
-                        'attachments': []
-                    }
+                    try:
+                        # Дешифруем сообщение, если есть ключ
+                        message_text = row[1]
+                        if session_key:
+                            message_text = MessageEncryptor.decrypt_message(row[1], session_key)
+                            
+                        messages[msg_id] = {
+                            'id': msg_id,
+                            'sender': row[2],
+                            'message_text': message_text,
+                            'timestamp': row[3],
+                            'attachments': []
+                        }
+                    except Exception as e:
+                        logging.error(f"Error decrypting message {msg_id}: {str(e)}")
+                        messages[msg_id] = {
+                            'id': msg_id,
+                            'sender': row[2],
+                            'message_text': "[Не удалось расшифровать сообщение]",
+                            'timestamp': row[3],
+                            'attachments': []
+                        }
                 
                 if row[4]:
                     messages[msg_id]['attachments'].append({
@@ -182,7 +205,8 @@ class MessageModel:
         user_id: int,
         message_text: str,
         group_id: Optional[int] = None,
-        receiver_id: Optional[int] = None
+        receiver_id: Optional[int] = None,
+        session_key: Optional[bytes] = None
     ) -> Optional[int]:
         """
         Создает новое сообщение (общее, групповое или приватное)
@@ -198,23 +222,27 @@ class MessageModel:
             ID созданного сообщения или None в случае ошибки
         """
         try:
+            # Шифруем сообщение, если предоставлен ключ
+            encrypted_text = message_text
+            if session_key:
+                encrypted_text = MessageEncryptor.encrypt_message(message_text, session_key)
+            
+            timestamp = int(datetime.now().timestamp())
+            
             with get_db_cursor() as cursor:
-                timestamp = int(datetime.now().timestamp())
-                
                 if message_type == 'group':
                     cursor.execute('''
                         INSERT INTO group_messages 
                         (group_id, user_id, message_text, timestamp)
                         VALUES (?, ?, ?, ?)
-                    ''', (group_id, user_id, message_text, timestamp))
+                    ''', (group_id, user_id, encrypted_text, timestamp))
                 elif message_type == 'private':
                     cursor.execute('''
                         INSERT INTO private_messages 
                         (sender_id, receiver_id, message_text, timestamp)
                         VALUES (?, ?, ?, ?)
-                    ''', (user_id, receiver_id, message_text, timestamp))
+                    ''', (user_id, receiver_id, encrypted_text, timestamp))
                 else:  # general
-                    # Получаем username отправителя
                     cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
                     sender = cursor.fetchone()[0]
                     
@@ -222,7 +250,7 @@ class MessageModel:
                         INSERT INTO messages 
                         (user_id, sender, message_text, timestamp)
                         VALUES (?, ?, ?, ?)
-                    ''', (user_id, sender, message_text, timestamp))
+                    ''', (user_id, sender, encrypted_text, timestamp))
                 
                 message_id = cursor.lastrowid
                 cursor.connection.commit()
@@ -614,3 +642,68 @@ class MessageModel:
                 'page': page,
                 'per_page': per_page
             }
+        
+class MessageEncryptor:
+    @staticmethod
+    def encrypt_message(message: str, session_key: bytes) -> str:
+        """Шифрует сообщение с использованием AES-256-CBC"""
+        try:
+            # Генерируем IV (Initialization Vector)
+            iv = os.urandom(16)
+            
+            # Создаем шифр
+            cipher = Cipher(
+                algorithms.AES(session_key),
+                modes.CBC(iv),
+                backend=default_backend()
+            )
+            
+            # Применяем padding к сообщению
+            padder = padding.PKCS7(128).padder()
+            padded_data = padder.update(message.encode('utf-8')) + padder.finalize()
+            
+            # Шифруем
+            encryptor = cipher.encryptor()
+            encrypted_message = encryptor.update(padded_data) + encryptor.finalize()
+            
+            # Объединяем IV и зашифрованное сообщение
+            combined = iv + encrypted_message
+            
+            # Кодируем в base64 для хранения
+            return base64.b64encode(combined).decode('utf-8')
+            
+        except Exception as e:
+            logging.error(f"Encryption error: {str(e)}")
+            raise
+
+    @staticmethod
+    def decrypt_message(encrypted_message: str, session_key: bytes) -> str:
+        """Дешифрует сообщение с использованием AES-256-CBC"""
+        try:
+            # Декодируем из base64
+            combined = base64.b64decode(encrypted_message)
+            
+            # Извлекаем IV (первые 16 байт)
+            iv = combined[:16]
+            encrypted_data = combined[16:]
+            
+            # Создаем шифр
+            cipher = Cipher(
+                algorithms.AES(session_key),
+                modes.CBC(iv),
+                backend=default_backend()
+            )
+            
+            # Дешифруем
+            decryptor = cipher.decryptor()
+            padded_data = decryptor.update(encrypted_data) + decryptor.finalize()
+            
+            # Удаляем padding
+            unpadder = padding.PKCS7(128).unpadder()
+            data = unpadder.update(padded_data) + unpadder.finalize()
+            
+            return data.decode('utf-8')
+            
+        except Exception as e:
+            logging.error(f"Decryption error: {str(e)}")
+            raise

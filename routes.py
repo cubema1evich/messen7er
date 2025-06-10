@@ -1,5 +1,5 @@
 from views import (
-    View, IndexView, GetUserIdView, GetMessageView, SendMessageView, SetSessionKeyView, PublicKeyView,
+    View, IndexView, GetUserIdView, GetMessageView, SendMessageView,
     RegisterView, LoginView, GetGroupMessagesView, CheckMessagesView,
     CheckEditedMessagesView, CreateGroupView, AddToGroupView, LeaveGroupView,
     GetGroupsView, SendPrivateMessageView, GetPrivateMessagesView,
@@ -7,7 +7,7 @@ from views import (
     SearchUsersView, GetPrivateChatsView, SearchMessagesView,
     GetGroupMembersView, CheckGroupAccessView, SendSystemMessageView,
     ChangeMemberRoleView, RenameGroupView, RemoveFromGroupView,
-    GetGeneralMembersView, NotFoundView, ForbiddenView, InternalServerErrorView
+    GetGeneralMembersView, NotFoundView, ForbiddenView, InternalServerErrorView, PublicKeyView
 )
 
 routes = {
@@ -17,8 +17,6 @@ routes = {
     '/get_user_id': GetUserIdView,
     '/get_messages': GetMessageView,
     '/send_message': SendMessageView,
-    '/set_session_key' : SetSessionKeyView,
-    '/public_key': PublicKeyView,
     '/register': RegisterView,
     '/login': LoginView,
     '/get_group_messages': GetGroupMessagesView,
@@ -43,6 +41,7 @@ routes = {
     '/rename_group': RenameGroupView,
     '/remove_from_group': RemoveFromGroupView,
     '/check_groups_updates': CheckGroupsUpdatesView,
+    '/public_key.pem': PublicKeyView,
     r'^/get_general_members$': GetGeneralMembersView,
     r'^/edit_message/(\d+)$': EditMessageView,
     r'^/delete_message/(\d+)$': DeleteMessageView,
