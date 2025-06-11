@@ -1682,11 +1682,19 @@ function viewAttachments(messageElement) {
 
     async function loadPrivateMessages() {
         if (!currentPrivateChat) return;
-        
+
         try {
-            const res = await fetch(`/get_private_messages?user=${currentPrivateChat}&timestamp=${lastTimestamp}`);
+            const sessionKeyBase64 = sessionStorage.getItem('session_key');
+            let url = `/get_private_messages?user=${currentPrivateChat}&timestamp=${lastTimestamp}`;
+
+            // Передаём ключ серверу, если он есть
+            if (sessionKeyBase64) {
+                url += `&session_key=${encodeURIComponent(sessionKeyBase64)}`;
+            }
+
+            const res = await fetch(url);
             const data = await res.json();
-            
+
             if (data.messages?.length > 0) {
                 displayMessages(data.messages);
                 lastTimestamp = data.timestamp;

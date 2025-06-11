@@ -14,15 +14,16 @@ from cryptography.hazmat.primitives import padding
 
 class MessageModel:
     @staticmethod
-    def get_general_messages(timestamp: int) -> List[Dict]:
+    def get_general_messages(timestamp: int, session_key: Optional[bytes] = None) -> List[Dict]:
         """
         Получает общие сообщения (из общего чата) новее указанного timestamp
         
         Args:
             timestamp: Временная метка для фильтрации сообщений
+            session_key: Декодированный 32-байтовый ключ AES (если есть)
             
         Returns:
-            Список сообщений с вложениями
+            Список расшифрованных сообщений с вложениями
         """
         with get_db_cursor() as cursor:
             cursor.execute('''
@@ -40,20 +41,59 @@ class MessageModel:
                 WHERE m.timestamp > ?
                 ORDER BY m.timestamp
             ''', (timestamp,))
-            
-            return MessageModel._process_messages(cursor)
+
+            messages = defaultdict(dict)
+
+            for row in cursor.fetchall():
+                msg_id = row[0]
+                if msg_id not in messages:
+                    try:
+                        # Дешифруем сообщение, если есть ключ
+                        message_text = row[2]
+                        if session_key:
+                            message_text = MessageEncryptor.decrypt_message(row[2], session_key)  # Расшифровка
+                        
+                        messages[msg_id] = {
+                            'id': msg_id,
+                            'sender': row[1],
+                            'message_text': message_text,  # Теперь расшифрованный текст!
+                            'timestamp': row[3],
+                            'type': row[7],
+                            'attachments': []
+                        }
+                    except Exception as e:
+                        logging.error(f"Error decrypting general message {msg_id}: {str(e)}")
+                        messages[msg_id] = {
+                            'id': msg_id,
+                            'sender': row[1],
+                            'message_text': "[Ошибка расшифровки сообщения]",
+                            'timestamp': row[3],
+                            'type': row[7],
+                            'attachments': []
+                        }
+
+                if row[4]:  # Если есть вложение
+                    messages[msg_id]['attachments'].append({
+                        'path': row[4],
+                        'mime_type': row[5],
+                        'filename': row[6]
+                    })
+
+            return list(messages.values())
+
 
     @staticmethod
-    def get_group_messages(group_id: int, timestamp: int) -> List[Dict]:
+    def get_group_messages(group_id: int, timestamp: int, session_key: Optional[bytes] = None) -> List[Dict]:
         """
         Получает сообщения из группового чата новее указанного timestamp
         
         Args:
             group_id: ID группы
             timestamp: Временная метка для фильтрации сообщений
+            session_key: Декодированный 32-байтовый ключ AES (если есть)
             
         Returns:
-            Список сообщений с вложениями
+            Список расшифрованных сообщений с вложениями
         """
         with get_db_cursor() as cursor:
             cursor.execute('''
@@ -78,26 +118,66 @@ class MessageModel:
                 WHERE gm.group_id = ? AND gm.timestamp > ?
                 ORDER BY gm.timestamp
             ''', (group_id, timestamp))
-            
-            return MessageModel._process_messages(cursor)
+
+            messages = defaultdict(dict)
+
+            for row in cursor.fetchall():
+                msg_id = row[0]
+                if msg_id not in messages:
+                    try:
+                        # Дешифруем сообщение, если есть ключ
+                        message_text = row[2]
+                        if session_key:
+                            message_text = MessageEncryptor.decrypt_message(row[2], session_key)  # Расшифровка
+                        
+                        messages[msg_id] = {
+                            'id': msg_id,
+                            'sender': row[1],
+                            'message_text': message_text,  # Теперь расшифрованный текст!
+                            'timestamp': row[3],
+                            'type': row[7],
+                            'attachments': []
+                        }
+                    except Exception as e:
+                        logging.error(f"Error decrypting group message {msg_id}: {str(e)}")
+                        messages[msg_id] = {
+                            'id': msg_id,
+                            'sender': row[1],
+                            'message_text': "[Ошибка расшифровки сообщения]",
+                            'timestamp': row[3],
+                            'type': row[7],
+                            'attachments': []
+                        }
+
+                if row[4]:  # Если есть вложение
+                    messages[msg_id]['attachments'].append({
+                        'path': row[4],
+                        'mime_type': row[5],
+                        'filename': row[6]
+                    })
+
+            return list(messages.values())
+
 
     @staticmethod
     def get_private_messages(
-        user_id: int,
-        other_user_id: int,
-        timestamp: int,
+        user_id: int, 
+        other_user_id: int, 
+        timestamp: int, 
         session_key: Optional[bytes] = None
     ) -> List[Dict]:
         """
-        Получает приватные сообщения между пользователями новее указанного timestamp
-        
+        Получает приватные сообщения между пользователями новее указанного timestamp.
+        Расшифровка происходит на сервере, если передан session_key.
+
         Args:
             user_id: ID текущего пользователя
             other_user_id: ID или username собеседника
-            timestamp: Временная метка для фильтрации сообщений
-            
+            timestamp: Временная метка для фильтрации
+            session_key: 32-байтовый AES-ключ (None, если шифрование не требуется)
+        
         Returns:
-            Список сообщений с правильными полями sender и message_text
+            Список сообщений с расшифрованным текстом и вложениями.
         """
         with get_db_cursor() as cursor:
             if isinstance(other_user_id, str):
@@ -125,18 +205,22 @@ class MessageModel:
                 AND pm.timestamp > ?
                 ORDER BY pm.timestamp ASC
             ''', [user_id, other_user_id, other_user_id, user_id, timestamp])
-            
+
             messages = defaultdict(dict)
-            
+
             for row in cursor.fetchall():
                 msg_id = row[0]
                 if msg_id not in messages:
                     try:
-                        # Дешифруем сообщение, если есть ключ
                         message_text = row[1]
                         if session_key:
-                            message_text = MessageEncryptor.decrypt_message(row[1], session_key)
-                            
+                            logging.debug(f"Decrypting message {msg_id} with key length: {len(session_key)}")
+                            if len(session_key) == 32:
+                                message_text = MessageEncryptor.decrypt_message(row[1], session_key)
+                            else:
+                                logging.error(f"Invalid session key length: {len(session_key)}")
+                                message_text = "[Ошибка расшифровки: неверный ключ]"
+
                         messages[msg_id] = {
                             'id': msg_id,
                             'sender': row[2],
@@ -145,22 +229,22 @@ class MessageModel:
                             'attachments': []
                         }
                     except Exception as e:
-                        logging.error(f"Error decrypting message {msg_id}: {str(e)}")
+                        logging.error(f"Ошибка расшифровки сообщения {msg_id}: {str(e)}")
                         messages[msg_id] = {
                             'id': msg_id,
                             'sender': row[2],
-                            'message_text': "[Не удалось расшифровать сообщение]",
+                            'message_text': "[Ошибка расшифровки]",
                             'timestamp': row[3],
                             'attachments': []
                         }
-                
-                if row[4]:
+
+                if row[4]:  # file_path
                     messages[msg_id]['attachments'].append({
                         'path': row[4],
                         'mime_type': row[5],
                         'filename': row[6]
                     })
-                    
+
             return list(messages.values())
 
     @staticmethod
@@ -225,7 +309,10 @@ class MessageModel:
             # Шифруем сообщение, если предоставлен ключ
             encrypted_text = message_text
             if session_key:
+                logging.debug(f"[Шифрование] Оригинальный текст: {message_text}")
                 encrypted_text = MessageEncryptor.encrypt_message(message_text, session_key)
+                logging.debug(f"[Шифрование] Зашифрованный текст (Base64): {encrypted_text}")
+
             
             timestamp = int(datetime.now().timestamp())
             
@@ -679,15 +766,21 @@ class MessageEncryptor:
     @staticmethod
     def decrypt_message(encrypted_message: str, session_key: bytes) -> str:
         """Дешифрует сообщение с использованием AES-256-CBC"""
+        logging.debug(f"decrypt_message() called with encrypted_message length: {len(encrypted_message)}")
+        logging.debug(f"decrypt_message() session_key length: {len(session_key)}")
+
         try:
             # Декодируем из base64
+            logging.debug(f"[Дешифрование] Base64 перед расшифровкой: {encrypted_message}")
             combined = base64.b64decode(encrypted_message)
+            logging.debug(f"[Дешифрование] Длина дешифрованных данных: {len(combined)} байт")
             
             # Извлекаем IV (первые 16 байт)
             iv = combined[:16]
             encrypted_data = combined[16:]
             
             # Создаем шифр
+            logging.debug(f"Session key length before AES decryption: {len(session_key)}")
             cipher = Cipher(
                 algorithms.AES(session_key),
                 modes.CBC(iv),
