@@ -29,23 +29,11 @@ def initialize_database():
             )
         ''')
 
-        # Таблица сообщений
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS messages (
-                message_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                sender TEXT NOT NULL,
-                message_text TEXT NOT NULL,
-                timestamp INTEGER
-            )
-        ''')
-
         # Таблица групп
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS groups (
                 group_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
-                timestamp INTEGER,
                 creator_id INTEGER,
                 created_at INTEGER,
                 FOREIGN KEY(creator_id) REFERENCES users(user_id)
@@ -65,11 +53,12 @@ def initialize_database():
         ''')
 
         # Создание общего чата, если он не существует
-        cursor.execute('SELECT * FROM groups WHERE name = "Общий чат"')
-        if not cursor.fetchone():
+        cursor.execute('SELECT group_id FROM groups WHERE name = "Общий чат"')
+        group_row = cursor.fetchone()
+        if not group_row:
             cursor.execute('''
-                INSERT INTO groups (name, creator_id, created_at)
-                VALUES ('Общий чат', 0, ?)
+                INSERT INTO groups (group_id, name, creator_id, created_at)
+                VALUES (0, 'Общий чат', 0, ?)
             ''', (int(time.time()),))
 
         # Таблица участников групп
@@ -77,7 +66,6 @@ def initialize_database():
             CREATE TABLE IF NOT EXISTS group_members (
                 group_id INTEGER,
                 user_id INTEGER,
-                timestamp INTEGER,
                 role TEXT CHECK(role IN ('owner', 'admin', 'member')),
                 joined_at INTEGER,
                 UNIQUE (group_id, user_id),
@@ -110,10 +98,6 @@ def initialize_database():
             )
         ''')
 
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_messages_text_nocase 
-            ON messages(message_text COLLATE NOCASE)
-        ''')
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_private_messages_text_nocase 
             ON private_messages(message_text COLLATE NOCASE)
@@ -188,25 +172,3 @@ def app(environ, start_response):
         logging.error(f"Server error: {str(e)}", exc_info=True)
         error_view = InternalServerErrorView('/500')
         return error_view.response(environ, start_response)
-
-def serve_static(environ, start_response):
-    """Обработка статических файлов."""
-    file_path = environ['REQUEST_URI'][1:]
-    
-    # Специальная обработка для публичного ключа
-    if file_path == 'public_key.pem':
-        with open('public_key.pem', 'rb') as f:
-            data = f.read()
-        start_response('200 OK', [('Content-Type', 'application/x-pem-file')])
-        return [data]
-    
-    if not os.path.exists(file_path):
-        start_response('404 Not Found', [('Content-Type', 'text/plain')])
-        return [b'File not found']
-    
-    with open(file_path, 'rb') as f:
-        data = f.read()
-    
-    mime_type = get_mime(file_path)
-    start_response('200 OK', [('Content-Type', mime_type)])
-    return [data]

@@ -11,7 +11,6 @@ from .message import *
 from .users import *
 from .p_chat import *
 from .search import *
-from .crypto import *
 
 __all__ = [
     'View', 'IndexView', 'TemplateView', 'RegisterView', 'LoginView',
@@ -21,5 +20,5 @@ __all__ = [
     'DeleteMessageView', 'EditMessageView', 'GetGroupMessagesView',
     'SendPrivateMessageView', 'GetPrivateMessagesView', 'CheckPrivateChatsUpdatesView', 'CheckMessagesView',
     'CheckEditedMessagesView', 'SearchMessagesView', 'SearchUsersView',
-    'GetUserIdView', 'GetPrivateChatsView', 'PublicKeyView'
+    'GetUserIdView', 'GetPrivateChatsView'
 ]

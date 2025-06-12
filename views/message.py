@@ -2,7 +2,6 @@ from collections import namedtuple
 import json
 import time
 import os 
-import base64
 import logging
 
 from urllib.parse import parse_qs
@@ -13,11 +12,6 @@ from utils import *
 from .base import View, json_response, forbidden_response
 from models.MessageModel import *
 from models.UserModel import *
-
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.serialization import load_pem_public_key
-from cryptography.hazmat.backends import default_backend
 
 
 class GetMessageView(View):
@@ -61,7 +55,6 @@ class SendMessageView(View):
         try:
             request = Request(environ)
             user_id = request.cookies.get('user_id')
-            session_key_b64 = request.cookies.get('session_key')
             
             if not user_id:
                 return forbidden_response(start_response)
@@ -73,10 +66,11 @@ class SendMessageView(View):
             else:
                 return json_response(
                     {'error': 'Invalid content type'}, 
-                    start_response,
+                    start_response, 
                     '400 Bad Request'
                 )
             
+            # Не сохраняем если нет ни текста, ни файлов
             if not message and not files:
                 return json_response({'status': 'nothing to save'}, start_response)
 
@@ -106,32 +100,19 @@ class SendMessageView(View):
                         )
                     receiver_id = receiver_user[0]
 
-            session_key = None
-
-            if session_key_b64:
-                try:
-                    session_key = base64.b64decode(session_key_b64)
-                    if len(session_key) != 32:  # Проверяем размер ключа после декодирования
-                        logging.error(f"Invalid session key length: {len(session_key)}")
-                        return json_response({'error': 'Invalid session key'}, start_response, '400 Bad Request')
-                except Exception as e:
-                    logging.error(f"Failed to decode session key: {str(e)}")
-                    return json_response({'error': 'Invalid session key'}, start_response, '400 Bad Request')
- 
             # Создаем сообщение в базе данных
             message_id = MessageModel.create_message(
                 message_type=message_type,
                 user_id=user_id,
                 message_text=message,
                 group_id=group_id,
-                receiver_id=receiver_id,
-                session_key=session_key
+                receiver_id=receiver_id
             )
             
             if not message_id:
                 raise Exception("Failed to create message")
 
-            # Обработка файлов остается без изменений
+            # Обрабатываем файлы
             if files:
                 unique_files = set()
                 upload_folder = os.path.join('static', 'uploads')
@@ -143,7 +124,7 @@ class SendMessageView(View):
                         if file_info and file_info['path'] not in unique_files:
                             unique_files.add(file_info['path'])
                             MessageModel.add_attachment(
-                                message_type=message_type,
+                                message_type='group' if message_type == 'general' else message_type,
                                 message_id=message_id,
                                 file_path=file_info['path'],
                                 mime_type=file_info['mime_type'],
@@ -319,7 +300,6 @@ class GetPrivateMessagesView(View):
             user_id = request.cookies.get('user_id')
             other_user = request.GET.get('user')
             timestamp = int(request.GET.get('timestamp', 0))
-            session_key_b64 = request.GET.get('session_key')
 
             if not user_id:
                 return json_response(
@@ -327,26 +307,15 @@ class GetPrivateMessagesView(View):
                     start_response, 
                     '401 Unauthorized'
                 )
+            
+            if not other_user:
+                return json_response(
+                    {'error': 'User parameter is required'},
+                    start_response,
+                    '400 Bad Request'
+                )
 
-            session_key = None
-            if session_key_b64:
-                try:
-                    session_key = base64.b64decode(session_key_b64)
-                    if len(session_key) != 32:
-                        logging.error(f"Invalid session key length: {len(session_key)}")
-                        return json_response(
-                            {'error': 'Invalid session key'}, 
-                            start_response, 
-                            '400 Bad Request'
-                        )
-                except Exception as e:
-                    logging.error(f"Failed to decode session key: {str(e)}")
-                    return json_response(
-                        {'error': 'Invalid session key'}, 
-                        start_response, 
-                        '400 Bad Request'
-                    )
-
+            # Получаем ID собеседника через UserModel
             with get_db_cursor() as cursor:
                 cursor.execute('SELECT id FROM users WHERE username = ?', (other_user,))
                 result = cursor.fetchone()
@@ -356,24 +325,24 @@ class GetPrivateMessagesView(View):
                         start_response, 
                         '404 Not Found'
                     )
+                
                 other_user_id = result[0]
-
+                
             messages = MessageModel.get_private_messages(
                 user_id=user_id,
                 other_user_id=other_user_id,
-                timestamp=timestamp,
-                session_key=session_key
+                timestamp=timestamp
             )
-
+            
             new_timestamp = max([msg['timestamp'] for msg in messages]) if messages else timestamp
-
+            
             return json_response({
                 'messages': messages,
                 'timestamp': new_timestamp
             }, start_response)
 
         except Exception as e:
-            logging.error(f"Error in private messages: {str(e)}")
+            print(f"Error in private messages: {str(e)}")
             return json_response(
                 {'error': 'Internal server error'}, 
                 start_response, 
@@ -461,7 +430,7 @@ class CheckMessagesView(View):
             query = parse_qs(environ['QUERY_STRING'])
             message_type = query.get('type', ['general'])[0]
             message_ids = query.get('ids', [''])[0].split(',')
-
+            
             if not message_ids or not message_ids[0]:
                 return json_response({'existingIds': []}, start_response)
 
@@ -475,13 +444,14 @@ class CheckMessagesView(View):
                     ''' % ','.join('?'*len(message_ids)), 
                     [chat_id] + message_ids)
                 elif message_type == 'private':
+                    # Для приватных чатов нужно проверить оба направления
                     user_id = request.cookies.get('user_id')
                     chat_id = query.get('chat_id', [None])[0]
                     cursor.execute('SELECT id FROM users WHERE username = ?', (chat_id,))
                     partner = cursor.fetchone()
                     if not partner:
                         return json_response({'existingIds': []}, start_response)
-
+                    
                     cursor.execute('''
                         SELECT id 
                         FROM private_messages 
@@ -494,18 +464,17 @@ class CheckMessagesView(View):
                 else:
                     cursor.execute('''
                         SELECT message_id 
-                        FROM messages 
-                        WHERE message_id IN (%s)
+                        FROM group_messages 
+                        WHERE group_id = 0 AND message_id IN (%s)
                     ''' % ','.join('?'*len(message_ids)), 
                     message_ids)
-
+                
                 existing_ids = [str(row[0]) for row in cursor.fetchall()]
                 return json_response({'existingIds': existing_ids}, start_response)
-
+                
         except Exception as e:
             logging.error(f"CheckMessages error: {str(e)}")
             return json_response({'existingIds': []}, start_response)
-
         
 class CheckEditedMessagesView(View):
     def response(self, environ, start_response):
@@ -514,19 +483,7 @@ class CheckEditedMessagesView(View):
             query = parse_qs(environ['QUERY_STRING'])
             message_type = query.get('type', ['general'])[0]
             last_timestamp = int(query.get('last_timestamp', [0])[0])
-
-            session_key_b64 = request.headers.get('Session-Key')
-            session_key = None
-            if session_key_b64:
-                try:
-                    session_key = base64.b64decode(session_key_b64)
-                    if len(session_key) != 32:
-                        logging.error(f"Invalid session key length: {len(session_key)}")
-                        return json_response({'editedMessages': []}, start_response)
-                except Exception as e:
-                    logging.error(f"Failed to decode session key: {str(e)}")
-                    return json_response({'editedMessages': []}, start_response)
-
+            
             with get_db_cursor() as cursor:
                 if message_type == 'group':
                     chat_id = query.get('chat_id', [None])[0]
@@ -547,7 +504,7 @@ class CheckEditedMessagesView(View):
                     partner = cursor.fetchone()
                     if not partner:
                         return json_response({'editedMessages': []}, start_response)
-
+                    
                     cursor.execute('''
                         SELECT 
                             pm.id as id,
@@ -564,32 +521,23 @@ class CheckEditedMessagesView(View):
                 else:
                     cursor.execute('''
                         SELECT 
-                            m.message_id as id,
-                            m.message_text as text,
-                            m.timestamp
-                        FROM messages m
-                        WHERE m.timestamp > ?
-                        ORDER BY m.timestamp DESC
+                            gm.message_id as id,
+                            gm.message_text as text,
+                            gm.timestamp
+                        FROM group_messages gm
+                        WHERE gm.group_id = 0 
+                        AND gm.timestamp > ?
+                        ORDER BY gm.timestamp DESC
                     ''', (last_timestamp,))
-
-                edited_messages = []
-                for row in cursor.fetchall():
-                    message_text = row[1]
-                    if session_key:
-                        try:
-                            message_text = MessageEncryptor.decrypt_message(row[1], session_key)
-                        except Exception as e:
-                            logging.error(f"Error decrypting edited message {row[0]}: {str(e)}")
-                            message_text = "[Ошибка расшифровки]"
-
-                    edited_messages.append({
-                        'id': row[0],
-                        'text': message_text,
-                        'timestamp': row[2]
-                    })
-
+                
+                edited_messages = [{
+                    'id': row[0],
+                    'text': row[1],
+                    'timestamp': row[2]
+                } for row in cursor.fetchall()]
+                
                 return json_response({'editedMessages': edited_messages}, start_response)
-
+                
         except Exception as e:
             logging.error(f"CheckEditedMessages error: {str(e)}")
             return json_response({'editedMessages': []}, start_response)

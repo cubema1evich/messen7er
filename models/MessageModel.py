@@ -1,4 +1,3 @@
-import base64
 import os
 import logging
 import hashlib
@@ -8,92 +7,49 @@ from collections import defaultdict
 from contextlib import contextmanager
 from utils import get_db_cursor
 from datetime import datetime
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import padding
 
 class MessageModel:
     @staticmethod
-    def get_general_messages(timestamp: int, session_key: Optional[bytes] = None) -> List[Dict]:
+    def get_general_messages(timestamp: int) -> List[Dict]:
         """
         Получает общие сообщения (из общего чата) новее указанного timestamp
-        
-        Args:
-            timestamp: Временная метка для фильтрации сообщений
-            session_key: Декодированный 32-байтовый ключ AES (если есть)
-            
-        Returns:
-            Список расшифрованных сообщений с вложениями
         """
         with get_db_cursor() as cursor:
             cursor.execute('''
                 SELECT 
-                    m.message_id,
-                    m.sender,
-                    m.message_text,
-                    m.timestamp,
+                    gm.message_id,
+                    CASE 
+                        WHEN gm.user_id = 0 THEN 'System'
+                        ELSE u.username
+                    END as sender,
+                    gm.message_text,
+                    gm.timestamp,
                     a.file_path,
                     a.mime_type,
                     a.filename,
-                    'general' as type
-                FROM messages m
-                LEFT JOIN attachments a ON a.message_id = m.message_id AND a.message_type = 'general'
-                WHERE m.timestamp > ?
-                ORDER BY m.timestamp
+                    'general' as type,
+                    gm.user_id
+                FROM group_messages gm
+                LEFT JOIN users u ON gm.user_id = u.id
+                LEFT JOIN attachments a 
+                    ON a.message_id = gm.message_id 
+                    AND a.message_type = 'group'
+                WHERE gm.group_id = 0 AND gm.timestamp > ?
+                ORDER BY gm.timestamp
             ''', (timestamp,))
-
-            messages = defaultdict(dict)
-
-            for row in cursor.fetchall():
-                msg_id = row[0]
-                if msg_id not in messages:
-                    try:
-                        # Дешифруем сообщение, если есть ключ
-                        message_text = row[2]
-                        if session_key:
-                            message_text = MessageEncryptor.decrypt_message(row[2], session_key)  # Расшифровка
-                        
-                        messages[msg_id] = {
-                            'id': msg_id,
-                            'sender': row[1],
-                            'message_text': message_text,  # Теперь расшифрованный текст!
-                            'timestamp': row[3],
-                            'type': row[7],
-                            'attachments': []
-                        }
-                    except Exception as e:
-                        logging.error(f"Error decrypting general message {msg_id}: {str(e)}")
-                        messages[msg_id] = {
-                            'id': msg_id,
-                            'sender': row[1],
-                            'message_text': "[Ошибка расшифровки сообщения]",
-                            'timestamp': row[3],
-                            'type': row[7],
-                            'attachments': []
-                        }
-
-                if row[4]:  # Если есть вложение
-                    messages[msg_id]['attachments'].append({
-                        'path': row[4],
-                        'mime_type': row[5],
-                        'filename': row[6]
-                    })
-
-            return list(messages.values())
-
+            return MessageModel._process_messages(cursor)
 
     @staticmethod
-    def get_group_messages(group_id: int, timestamp: int, session_key: Optional[bytes] = None) -> List[Dict]:
+    def get_group_messages(group_id: int, timestamp: int) -> List[Dict]:
         """
         Получает сообщения из группового чата новее указанного timestamp
         
         Args:
             group_id: ID группы
             timestamp: Временная метка для фильтрации сообщений
-            session_key: Декодированный 32-байтовый ключ AES (если есть)
             
         Returns:
-            Список расшифрованных сообщений с вложениями
+            Список сообщений с вложениями
         """
         with get_db_cursor() as cursor:
             cursor.execute('''
@@ -118,68 +74,24 @@ class MessageModel:
                 WHERE gm.group_id = ? AND gm.timestamp > ?
                 ORDER BY gm.timestamp
             ''', (group_id, timestamp))
-
-            messages = defaultdict(dict)
-
-            for row in cursor.fetchall():
-                msg_id = row[0]
-                if msg_id not in messages:
-                    try:
-                        # Дешифруем сообщение, если есть ключ
-                        message_text = row[2]
-                        if session_key:
-                            message_text = MessageEncryptor.decrypt_message(row[2], session_key)  # Расшифровка
-                        
-                        messages[msg_id] = {
-                            'id': msg_id,
-                            'sender': row[1],
-                            'message_text': message_text,  # Теперь расшифрованный текст!
-                            'timestamp': row[3],
-                            'type': row[7],
-                            'attachments': []
-                        }
-                    except Exception as e:
-                        logging.error(f"Error decrypting group message {msg_id}: {str(e)}")
-                        messages[msg_id] = {
-                            'id': msg_id,
-                            'sender': row[1],
-                            'message_text': "[Ошибка расшифровки сообщения]",
-                            'timestamp': row[3],
-                            'type': row[7],
-                            'attachments': []
-                        }
-
-                if row[4]:  # Если есть вложение
-                    messages[msg_id]['attachments'].append({
-                        'path': row[4],
-                        'mime_type': row[5],
-                        'filename': row[6]
-                    })
-
-            return list(messages.values())
-
+            
+            return MessageModel._process_messages(cursor)
 
     @staticmethod
-    def get_private_messages(
-        user_id: int, 
-        other_user_id: int, 
-        timestamp: int, 
-        session_key: Optional[bytes] = None
-    ) -> List[Dict]:
+    def get_private_messages(user_id: int, other_user_id: int, timestamp: int) -> List[Dict]:
         """
-        Получает приватные сообщения между пользователями новее указанного timestamp.
-        Расшифровка происходит на сервере, если передан session_key.
-
+        Получает приватные сообщения между пользователями новее указанного timestamp
+        
         Args:
             user_id: ID текущего пользователя
             other_user_id: ID или username собеседника
-            timestamp: Временная метка для фильтрации
-            session_key: 32-байтовый AES-ключ (None, если шифрование не требуется)
-        
+            timestamp: Временная метка для фильтрации сообщений
+            
         Returns:
-            Список сообщений с расшифрованным текстом и вложениями.
+            Список сообщений с правильными полями sender и message_text
         """
         with get_db_cursor() as cursor:
+            # Сначала получаем ID собеседника, если передан username
             if isinstance(other_user_id, str):
                 cursor.execute("SELECT id FROM users WHERE username = ?", (other_user_id,))
                 other_user = cursor.fetchone()
@@ -205,46 +117,27 @@ class MessageModel:
                 AND pm.timestamp > ?
                 ORDER BY pm.timestamp ASC
             ''', [user_id, other_user_id, other_user_id, user_id, timestamp])
-
+            
             messages = defaultdict(dict)
-
+            
             for row in cursor.fetchall():
                 msg_id = row[0]
                 if msg_id not in messages:
-                    try:
-                        message_text = row[1]
-                        if session_key:
-                            logging.debug(f"Decrypting message {msg_id} with key length: {len(session_key)}")
-                            if len(session_key) == 32:
-                                message_text = MessageEncryptor.decrypt_message(row[1], session_key)
-                            else:
-                                logging.error(f"Invalid session key length: {len(session_key)}")
-                                message_text = "[Ошибка расшифровки: неверный ключ]"
-
-                        messages[msg_id] = {
-                            'id': msg_id,
-                            'sender': row[2],
-                            'message_text': message_text,
-                            'timestamp': row[3],
-                            'attachments': []
-                        }
-                    except Exception as e:
-                        logging.error(f"Ошибка расшифровки сообщения {msg_id}: {str(e)}")
-                        messages[msg_id] = {
-                            'id': msg_id,
-                            'sender': row[2],
-                            'message_text': "[Ошибка расшифровки]",
-                            'timestamp': row[3],
-                            'attachments': []
-                        }
-
-                if row[4]:  # file_path
+                    messages[msg_id] = {
+                        'id': msg_id,
+                        'sender': row[2],
+                        'message_text': row[1],
+                        'timestamp': row[3],
+                        'attachments': []
+                    }
+                
+                if row[4]:
                     messages[msg_id]['attachments'].append({
                         'path': row[4],
                         'mime_type': row[5],
                         'filename': row[6]
                     })
-
+                    
             return list(messages.values())
 
     @staticmethod
@@ -289,8 +182,7 @@ class MessageModel:
         user_id: int,
         message_text: str,
         group_id: Optional[int] = None,
-        receiver_id: Optional[int] = None,
-        session_key: Optional[bytes] = None
+        receiver_id: Optional[int] = None
     ) -> Optional[int]:
         """
         Создает новое сообщение (общее, групповое или приватное)
@@ -306,38 +198,30 @@ class MessageModel:
             ID созданного сообщения или None в случае ошибки
         """
         try:
-            # Шифруем сообщение, если предоставлен ключ
-            encrypted_text = message_text
-            if session_key:
-                logging.debug(f"[Шифрование] Оригинальный текст: {message_text}")
-                encrypted_text = MessageEncryptor.encrypt_message(message_text, session_key)
-                logging.debug(f"[Шифрование] Зашифрованный текст (Base64): {encrypted_text}")
-
-            
-            timestamp = int(datetime.now().timestamp())
-            
             with get_db_cursor() as cursor:
+                timestamp = int(datetime.now().timestamp())
+                
                 if message_type == 'group':
                     cursor.execute('''
                         INSERT INTO group_messages 
                         (group_id, user_id, message_text, timestamp)
                         VALUES (?, ?, ?, ?)
-                    ''', (group_id, user_id, encrypted_text, timestamp))
+                    ''', (group_id, user_id, message_text, timestamp))
                 elif message_type == 'private':
                     cursor.execute('''
                         INSERT INTO private_messages 
                         (sender_id, receiver_id, message_text, timestamp)
                         VALUES (?, ?, ?, ?)
-                    ''', (user_id, receiver_id, encrypted_text, timestamp))
+                    ''', (user_id, receiver_id, message_text, timestamp))
                 else:  # general
+                    # Получаем username отправителя
                     cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
-                    sender = cursor.fetchone()[0]
                     
                     cursor.execute('''
-                        INSERT INTO messages 
-                        (user_id, sender, message_text, timestamp)
+                        INSERT INTO group_messages 
+                        (group_id, user_id, message_text, timestamp)
                         VALUES (?, ?, ?, ?)
-                    ''', (user_id, sender, encrypted_text, timestamp))
+                    ''', (0, user_id, message_text, timestamp))
                 
                 message_id = cursor.lastrowid
                 cursor.connection.commit()
@@ -426,15 +310,14 @@ class MessageModel:
         try:
             with get_db_cursor() as cursor:
                 if message_type == 'general':
-                    # Для общего чата - только свои сообщения
+                    # Общий чат — только свои сообщения
                     cursor.execute('''
-                        SELECT user_id FROM messages WHERE message_id = ?
+                        SELECT user_id FROM group_messages WHERE message_id = ? AND group_id = 0
                     ''', (message_id,))
                     result = cursor.fetchone()
                     if not result or int(result[0]) != user_id:
                         return False
-                    
-                    cursor.execute('DELETE FROM messages WHERE message_id = ?', (message_id,))
+                    cursor.execute('DELETE FROM group_messages WHERE message_id = ? AND group_id = 0', (message_id,))
                     
                 elif message_type == 'private':
                     # Для личных - только свои сообщения
@@ -500,18 +383,16 @@ class MessageModel:
                 timestamp = int(datetime.now().timestamp())
                 
                 if message_type == 'general':
-                    # Общий чат - только свои сообщения
                     cursor.execute('''
-                        SELECT user_id FROM messages WHERE message_id = ?
+                        SELECT user_id FROM group_messages WHERE message_id = ? AND group_id = 0
                     ''', (message_id,))
                     result = cursor.fetchone()
                     if not result or int(result[0]) != user_id:
                         return False
-                        
                     cursor.execute('''
-                        UPDATE messages 
+                        UPDATE group_messages 
                         SET message_text = ?, timestamp = ?
-                        WHERE message_id = ?
+                        WHERE message_id = ? AND group_id = 0
                     ''', (new_text, timestamp, message_id))
                     
                 elif message_type == 'private':
@@ -679,22 +560,26 @@ class MessageModel:
                 else:  # general
                     query = """
                         SELECT 
-                            m.message_id as id,
-                            m.message_text as text,
-                            m.sender,
-                            m.timestamp,
-                            m.message_text as snippet
-                        FROM messages m
-                        WHERE m.message_text LIKE ?
-                        ORDER BY m.timestamp DESC
+                            gm.message_id as id,
+                            gm.message_text as text,
+                            CASE 
+                                WHEN gm.user_id = 0 THEN 'System'
+                                ELSE u.username
+                            END as sender,
+                            gm.timestamp,
+                            gm.message_text as snippet
+                        FROM group_messages gm
+                        LEFT JOIN users u ON gm.user_id = u.id
+                        WHERE gm.group_id = 0 AND gm.message_text LIKE ?
+                        ORDER BY gm.timestamp DESC
                         LIMIT ? OFFSET ?
                     """
                     params = [f'%{search_query}%', per_page, (page - 1) * per_page]
-                    
+
                     count_query = """
                         SELECT COUNT(*) 
-                        FROM messages 
-                        WHERE message_text LIKE ?
+                        FROM group_messages 
+                        WHERE group_id = 0 AND message_text LIKE ?
                     """
                     count_params = [f'%{search_query}%']
                 
@@ -729,74 +614,3 @@ class MessageModel:
                 'page': page,
                 'per_page': per_page
             }
-        
-class MessageEncryptor:
-    @staticmethod
-    def encrypt_message(message: str, session_key: bytes) -> str:
-        """Шифрует сообщение с использованием AES-256-CBC"""
-        try:
-            # Генерируем IV (Initialization Vector)
-            iv = os.urandom(16)
-            
-            # Создаем шифр
-            cipher = Cipher(
-                algorithms.AES(session_key),
-                modes.CBC(iv),
-                backend=default_backend()
-            )
-            
-            # Применяем padding к сообщению
-            padder = padding.PKCS7(128).padder()
-            padded_data = padder.update(message.encode('utf-8')) + padder.finalize()
-            
-            # Шифруем
-            encryptor = cipher.encryptor()
-            encrypted_message = encryptor.update(padded_data) + encryptor.finalize()
-            
-            # Объединяем IV и зашифрованное сообщение
-            combined = iv + encrypted_message
-            
-            # Кодируем в base64 для хранения
-            return base64.b64encode(combined).decode('utf-8')
-            
-        except Exception as e:
-            logging.error(f"Encryption error: {str(e)}")
-            raise
-
-    @staticmethod
-    def decrypt_message(encrypted_message: str, session_key: bytes) -> str:
-        """Дешифрует сообщение с использованием AES-256-CBC"""
-        logging.debug(f"decrypt_message() called with encrypted_message length: {len(encrypted_message)}")
-        logging.debug(f"decrypt_message() session_key length: {len(session_key)}")
-
-        try:
-            # Декодируем из base64
-            logging.debug(f"[Дешифрование] Base64 перед расшифровкой: {encrypted_message}")
-            combined = base64.b64decode(encrypted_message)
-            logging.debug(f"[Дешифрование] Длина дешифрованных данных: {len(combined)} байт")
-            
-            # Извлекаем IV (первые 16 байт)
-            iv = combined[:16]
-            encrypted_data = combined[16:]
-            
-            # Создаем шифр
-            logging.debug(f"Session key length before AES decryption: {len(session_key)}")
-            cipher = Cipher(
-                algorithms.AES(session_key),
-                modes.CBC(iv),
-                backend=default_backend()
-            )
-            
-            # Дешифруем
-            decryptor = cipher.decryptor()
-            padded_data = decryptor.update(encrypted_data) + decryptor.finalize()
-            
-            # Удаляем padding
-            unpadder = padding.PKCS7(128).unpadder()
-            data = unpadder.update(padded_data) + unpadder.finalize()
-            
-            return data.decode('utf-8')
-            
-        except Exception as e:
-            logging.error(f"Decryption error: {str(e)}")
-            raise

@@ -1,7 +1,5 @@
 document.addEventListener("DOMContentLoaded", function () {
 
-    const cryptoSubtle = window.crypto.subtle || window.crypto.webkitSubtle;
-
     const updateAuthButtons = () => {
         const authButtons = document.getElementById('auth-buttons');
         const username = sessionStorage.getItem('username');
@@ -317,107 +315,9 @@ document.addEventListener("DOMContentLoaded", function () {
         });
 
     }
-
-    function base64ToArrayBuffer(base64) {
-        // Удаляем все пробелы и переносы строк
-        base64 = base64.replace(/[\r\n\s]/g, '');
-        const binaryString = window.atob(base64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-        }
-        return bytes.buffer;
-    }
-
-    
-    // Функция для расшифровки сеансового ключа
-    async function decryptSessionKey(encryptedSessionKeyBase64) {
-        try {
-            // Загружаем приватный ключ (должен быть встроен в клиент)
-            const privateKeyPem = `-----BEGIN PRIVATE KEY-----
-            MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCNWcLJrE+l2YZ/
-            2rL+NgeiwVl0hbi5APAJIqGe/JtqEQVtXcByDANjkXRAFC/81NGk+qA2uxbh0zT1
-            H/wQ/dd7fWsJciPh+rgxt1wovKc7DvaMAU7lyzBdhakbtDQ5F/byN9lf2dk3AWvZ
-            yVXuGumlR8WaA/BabkpRORRcBZHM9OGGqCnK7ltfL589FEOyHzAi55MwNJAYLPvd
-            F/VOiYW2VNQtC3jX2hT677kL6C1/aGPo1+x+sr+lKG9s5mYT9vfgfqcSHGlAgxDs
-            UbpxmoH/4S3fHctFNeXDhDCh8CJe+ygU5xeXcSKhy7NvZ9qScCKTHmwmZEySn+5H
-            iTTA7coXAgMBAAECggEAFq8Q/iG+UR9Xi60ijH6fOxShsSbEk5aoRCRf9jkTt9yD
-            bR8JLe7qRvr7bPfQZlgWTM5BEodzufSVyxYW8vh0XEeu+xUWLRh59tXg3v4SLagj
-            vil3lT5xGeZup8ODnftP5g87EzwitRvFSG4ccYRgJTt0uq1nJRwN+9BCiYIF+UjA
-            0db9GitnniSZwX1nn2jA/lN/Lv1PdcK8tiwarx5w7mhgci4zbNtmmCTfWMdTaA/g
-            DJ2b58H3OONOx8jHUnmS/kKMsczD6LLrtpxmWHmIPAx89aXg3V1mbEuRl+gKrvmi
-            B5ZGXK6nMXi4cNc6nDF/7t6kyPrACrOXgqwGV+CyAQKBgQC4B9arJiC/wwFcsiRF
-            wxyKoim/Rih7530hwokcOEMtNcAwojVliOtLDuMTgOzxYG0LNEvL5rpKfiyBY6aY
-            sB1xq+7tqylEH7IfKvos9Q4CyGzfHCpAh9wm5D5thyqzm46dJDem8XLb4wnhepEg
-            oesIF6iPLhF8tX/SdMQrY5NJXQKBgQDEoQenghCM1o+PgYvPiVqnJePLi6AbxlAd
-            yAoGHsAc/iWsPiWlmmKhuOHBHxILtsnRhVnPdPi9+a5fOgGkOT9teqhh7dwHRFmI
-            4++DXzaKX/jkQlzszX17pn5p9xi2YbI68WRTXhUHppz4aMYXMemtKr+j7Ka2zl4b
-            ioFP4+7GAwKBgEH/VaYVS2NZ/NAQdt+p5D93fn9BGt2sm/ySdndvWfAJub33Pi0G
-            mFNXqGnjL5Y03YZKH/Ck8yQp8a4JXcKeTkDoxwvm+SqcL1XsJMIgtACdfiXZRPHV
-            h0dPTXAcLF0zKUcDqQ2uw2FGH9IEEa3hQ5eoXGPUwqK1uHxyMbPZxwVlAoGAPLm+
-            s2znz5c0Hw3TL/UrmhOJloM4n1tPwuLUta8phcq3t8o5tjtH2spObmY6HIQHMD4O
-            zpNBfuptf9taRm2nuRf4iMX8/gGN5Uj/34K4RWP+agBU0o1kA5wXzoIRj8H8WVfT
-            tCuKMyKxt8Yj52Xy1Rgut2GO20ZAqiDMbu/l/iECgYAvM8eHuMWWfp3BQ0do67gt
-            aDwxJT7hjZ0Q2Gt4KrwDAh+VYX8viUnc7ADoIW/sd1wtm/uaShblRVGfqpdMoiay
-            a3DTUrmqqSgLMmKo/A6MX0GNs11OTun7Vgpe2WeDKeVRySmhETjwwXInuzRj1xnf
-            olbY2xNZnLlJHPE1TEvW3Q==
-            -----END PRIVATE KEY-----`;
-            
-            // Импортируем приватный ключ
-            const privateKey = await window.crypto.subtle.importKey(
-                'pkcs8',
-                pemToArrayBuffer(privateKeyPem),
-                {
-                    name: 'RSA-OAEP',
-                    hash: {name: 'SHA-256'}
-                },
-                true,
-                ['decrypt']
-            );
-            
-            const encryptedSessionKey = base64ToArrayBuffer(encryptedSessionKeyBase64);
-            
-            console.log("Encrypted session key (Base64):", encryptedSessionKey);            
-
-            // Расшифровываем сеансовый ключ
-            const sessionKey = await window.crypto.subtle.decrypt(
-                { name: 'RSA-OAEP' },
-                privateKey,
-                encryptedSessionKey // теперь это ArrayBuffer
-            );
-            return sessionKey;
-        } catch (e) {
-            console.error('Session key decryption error:', e);
-            throw e;
-        }
-    }
-
-    // Вспомогательные функции
-    function pemToArrayBuffer(pem) {
-        const base64 = pem.replace(/-{5}[^-]+-{5}/g, '').replace(/\s/g, '');
-        return base64ToArrayBuffer(base64);
-    }
-
-    // Функция для кодирования ArrayBuffer в base64
-    function arrayBufferToBase64(buffer) {
-        let binary = '';
-        const bytes = new Uint8Array(buffer);
-        for (let i = 0; i < bytes.byteLength; i++) {
-            binary += String.fromCharCode(bytes[i]);
-        }
-        return window.btoa(binary);
-    }
     
     async function loadMessages() {
         try {
-            const sessionKeyBase64 = sessionStorage.getItem('session_key');
-            let sessionKey = null;
-
-            if (sessionKeyBase64) {
-                // sessionKeyBase64 — это base64 от 32-байтового ключа, НЕ нужно расшифровывать!
-                sessionKey = base64ToArrayBuffer(sessionKeyBase64);
-            }
-
             let url;
             if (currentGroup) {
                 // Проверяем доступ к группе перед загрузкой сообщений
@@ -432,11 +332,7 @@ document.addEventListener("DOMContentLoaded", function () {
             } else {
                 url = `/get_messages?timestamp=${lastTimestamp}`;
             }
-
-            if (sessionKey) {
-                url += `&session_key=${encodeURIComponent(arrayBufferToBase64(sessionKey))}`;
-            }
-
+    
             const res = await fetch(url);
             const data = await res.json();
             
@@ -444,7 +340,8 @@ document.addEventListener("DOMContentLoaded", function () {
                 displayMessages(data.messages);
                 lastTimestamp = data.timestamp;
             }
-
+    
+            
             if (res.status === 401) {
                 window.location.href = '/login';
                 return;
@@ -456,12 +353,12 @@ document.addEventListener("DOMContentLoaded", function () {
                 UI.currentGroupName.textContent = 'Общий чат';
                 return loadMessages();
             }
-
+    
             if (res.status === 500) {
                 window.location.href = '/500';
                 return;
             }
-
+    
             if (!res.ok) {
                 const error = await res.json();
                 throw new Error(error.message || `HTTP error! status: ${res.status}`);
@@ -1646,7 +1543,7 @@ function viewAttachments(messageElement) {
             </div>
         `).join('');
     }
- 
+
     async function selectPrivateChat(username) {
         currentPrivateChat = username;
         currentGroup = null;
@@ -1682,19 +1579,11 @@ function viewAttachments(messageElement) {
 
     async function loadPrivateMessages() {
         if (!currentPrivateChat) return;
-
+        
         try {
-            const sessionKeyBase64 = sessionStorage.getItem('session_key');
-            let url = `/get_private_messages?user=${currentPrivateChat}&timestamp=${lastTimestamp}`;
-
-            // Передаём ключ серверу, если он есть
-            if (sessionKeyBase64) {
-                url += `&session_key=${encodeURIComponent(sessionKeyBase64)}`;
-            }
-
-            const res = await fetch(url);
+            const res = await fetch(`/get_private_messages?user=${currentPrivateChat}&timestamp=${lastTimestamp}`);
             const data = await res.json();
-
+            
             if (data.messages?.length > 0) {
                 displayMessages(data.messages);
                 lastTimestamp = data.timestamp;
