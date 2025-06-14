@@ -123,6 +123,16 @@ class GroupModel:
                     WHERE group_id = ? AND user_id = ?
                 ''', (group_id, user_id))
                 target_role = cursor.fetchone()
+
+                # Проверяем, существует ли участник в группе
+                cursor.execute('''
+                    SELECT role FROM group_members 
+                    WHERE group_id = ? AND user_id = ?
+                    ''', (group_id, user_id))
+                target_role = cursor.fetchone()
+                
+                if not target_role:
+                    return {'error': 'User not in group'}
                 
                 # Владельца может удалить только другой владелец
                 if target_role and target_role[0] == 'owner' and remover_role[0] != 'owner':
