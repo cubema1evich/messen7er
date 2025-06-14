@@ -23,5 +23,6 @@ def get_db_cursor():
         cursor = conn.cursor()
         try:
             yield cursor
+            conn.commit()
         finally:
             cursor.close()
