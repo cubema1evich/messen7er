@@ -75,6 +75,14 @@ class GroupModel:
                 if not cursor.fetchone():
                     return {'error': 'Group not found'}
                 
+                # Проверяем, есть ли уже пользователь в группе
+                cursor.execute('''
+                    SELECT 1 FROM group_members 
+                    WHERE group_id = ? AND user_id = ?
+                    ''', (group_id, user_id))
+                if cursor.fetchone():
+                    return {'error': 'Пользователь уже состоит в группе'}
+                
                 # Добавляем участника
                 cursor.execute('''
                     INSERT OR REPLACE INTO group_members 
