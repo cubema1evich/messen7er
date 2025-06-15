@@ -135,7 +135,7 @@ class GroupModel:
                     return {'error': 'User not in group'}
                 
                 # Владельца может удалить только другой владелец
-                if target_role and target_role[0] == 'owner' and remover_role[0] != 'owner':
+                if target_role and target_role[0] == 'owner':
                     return {'error': 'Нельзя удалить владельца'}
                 
                 # Удаляем участника
