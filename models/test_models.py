@@ -8,6 +8,10 @@ from io import BytesIO
 from datetime import datetime
 from unittest.mock import patch
 
+import pytest
+pytestmark = pytest.mark.models
+
+
 def init_schema(conn):
     """
     Создаёт схему БД для тестирования, создавая таблицы,
