@@ -7,7 +7,7 @@ import logging
 from routes import routes
 from mimes import get_mime
 from views import NotFoundView, InternalServerErrorView  
-from utils import get_db_cursor
+from utils.db_utils import get_db_cursor
 
 
 # Создание таблиц в базе данных

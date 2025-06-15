@@ -6,7 +6,7 @@ import logging
 
 from urllib.parse import parse_qs
 from mimes import get_mime
-from webob import Request
+from webob import Request, Response
 from werkzeug.utils import secure_filename
 from utils import *
 from .base import View, json_response, forbidden_response
@@ -54,29 +54,37 @@ class SendMessageView(View):
     def response(self, environ, start_response):
         try:
             request = Request(environ)
+            if request.method != 'POST':
+                res = Response(json_body={'error': 'Method Not Allowed'}, status=405)
+                return res(environ, start_response)
             user_id = request.cookies.get('user_id')
             
             if not user_id:
                 return forbidden_response(start_response)
 
-            if request.content_type.startswith('multipart/form-data'):
+            if request.content_type and request.content_type.startswith('application/json'):
+                content_length = int(environ.get('CONTENT_LENGTH', 0))
+                post_data = json.loads(environ['wsgi.input'].read(content_length))
+                files = []
+                message = post_data.get('message', '').strip()
+                group_id = post_data.get('group_id')
+                receiver = post_data.get('receiver')
+            elif request.content_type and request.content_type.startswith('multipart/form-data'):
                 post_data = request.POST
                 files = request.POST.getall('files')
                 message = post_data.get('message', '').strip()
+                group_id = post_data.get('group_id')
+                receiver = post_data.get('receiver')
             else:
                 return json_response(
                     {'error': 'Invalid content type'}, 
                     start_response, 
                     '400 Bad Request'
                 )
-            
+
             # Не сохраняем если нет ни текста, ни файлов
             if not message and not files:
                 return json_response({'status': 'nothing to save'}, start_response)
-
-            message = post_data.get('message', '').strip()
-            group_id = post_data.get('group_id')
-            receiver = post_data.get('receiver')
 
             # Определяем тип сообщения
             if group_id:
@@ -112,7 +120,7 @@ class SendMessageView(View):
             if not message_id:
                 raise Exception("Failed to create message")
 
-            # Обрабатываем файлы
+            # Обрабатываем файлы (только для multipart)
             if files:
                 unique_files = set()
                 upload_folder = os.path.join('static', 'uploads')
@@ -131,7 +139,7 @@ class SendMessageView(View):
                                 filename=file_info['filename']
                             )
 
-            return json_response({'status': 'success'}, start_response)
+            return json_response({'status': 'success', 'message_id': message_id}, start_response)
 
         except Exception as e:
             logging.error(f"Error in SendMessageView: {str(e)}", exc_info=True)
@@ -350,57 +358,8 @@ class GetPrivateMessagesView(View):
             )
 
 class SendPrivateMessageView(View):
-    def response(self, environ, start_response):
-        try:
-            request = Request(environ)
-            user_id = request.cookies.get('user_id')
-            
-            if not user_id:
-                return forbidden_response(start_response)
-
-            content_length = int(environ.get('CONTENT_LENGTH', 0))
-            post_data = json.loads(environ['wsgi.input'].read(content_length))
-            
-            receiver = post_data.get('receiver')
-            message = post_data.get('message')
-
-            if not receiver or not message:
-                return json_response(
-                    {'error': 'Missing parameters'}, 
-                    start_response, 
-                    '400 Bad Request'
-                )
-
-            receiver_id = UserModel.get_user_id(receiver)
-            if not receiver_id:
-                return json_response(
-                    {'error': 'User not found'}, 
-                    start_response, 
-                    '404 Not Found'
-                )
-                
-                receiver_id = result[0]
-
-            message_id = MessageModel.create_message(
-                message_type='private',
-                user_id=user_id,
-                message_text=message,
-                receiver_id=receiver_id
-            )
-            
-            if not message_id:
-                raise Exception("Failed to create private message")
-                
-            return json_response({'status': 'success'}, start_response)
-
-        except Exception as e:
-            print(f"Error in private message: {str(e)}")
-            return json_response(
-                {'error': 'Internal server error'}, 
-                start_response, 
-                '500 Internal Server Error'
-            )
-
+    response = SendMessageView.response
+  
 class SendSystemMessageView(View):
     def response(self, environ, start_response):
         try:
