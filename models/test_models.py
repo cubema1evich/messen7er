@@ -8,12 +8,6 @@ from io import BytesIO
 from datetime import datetime
 from unittest.mock import patch
 
-
-# Подменяем функцию для получения соединения с БД, чтобы использовать in‑memory базу.
-from utils import db_utils
-_original_get_db_connection = db_utils.get_db_connection
-db_utils.get_db_connection = lambda: sqlite3.connect(":memory:")
-
 def init_schema(conn):
     """
     Создаёт схему БД для тестирования, создавая таблицы,
@@ -98,13 +92,12 @@ class TestUserModel(unittest.TestCase):
         """
         self.conn = sqlite3.connect(":memory:")
         init_schema(self.conn)
+        from utils import db_utils
         self.original_get_db_connection = db_utils.get_db_connection
         db_utils.get_db_connection = lambda: self.conn
 
     def tearDown(self):
-        """
-        Завершает работу с in‑memory базой и восстанавливает оригинальную функцию.
-        """
+        from utils import db_utils
         self.conn.close()
         db_utils.get_db_connection = self.original_get_db_connection
 
@@ -179,6 +172,7 @@ class TestGroupModel(unittest.TestCase):
         """
         self.conn = sqlite3.connect(":memory:")
         init_schema(self.conn)
+        from utils import db_utils
         self.original_get_db_connection = db_utils.get_db_connection
         db_utils.get_db_connection = lambda: self.conn
         UserModel.create_user("group_owner", "password")
@@ -188,6 +182,7 @@ class TestGroupModel(unittest.TestCase):
         """
         Завершает работу in‑memory БД и восстанавливает оригинальный get_db_connection.
         """
+        from utils import db_utils
         self.conn.close()
         db_utils.get_db_connection = self.original_get_db_connection
 
@@ -497,11 +492,9 @@ class TestGroupModel(unittest.TestCase):
 ######################################
 class TestMessageModel(unittest.TestCase):
     def setUp(self):
-        """
-        Инициализирует in‑memory БД для тестирования логики сообщений и создаёт двух пользователей.
-        """
         self.conn = sqlite3.connect(":memory:")
         init_schema(self.conn)
+        from utils import db_utils
         self.original_get_db_connection = db_utils.get_db_connection
         db_utils.get_db_connection = lambda: self.conn
         UserModel.create_user("msg_sender", "pass")
@@ -510,9 +503,7 @@ class TestMessageModel(unittest.TestCase):
         self.receiver_id = UserModel.get_user_id("msg_receiver")
     
     def tearDown(self):
-        """
-        Завершает работу с in‑memory БД и восстанавливает оригинальный get_db_connection.
-        """
+        from utils import db_utils
         self.conn.close()
         db_utils.get_db_connection = self.original_get_db_connection
 
