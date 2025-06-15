@@ -1,0 +1,11 @@
+[run]
+branch = True
+source =
+    models/UserModel.py
+    models/GroupModel.py
+    models/MessageModel.py
+
+[report]
+omit =
+    */tests/*
+    */venv/*
