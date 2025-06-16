@@ -2,16 +2,19 @@ from collections import namedtuple
 import json
 import time
 import os 
+import base64
 import logging
 
 from urllib.parse import parse_qs
-from mimes import get_mime
 from webob import Request, Response
-from werkzeug.utils import secure_filename
 from utils import *
 from .base import View, json_response, forbidden_response
 from models.MessageModel import *
 from models.UserModel import *
+from models.session import *
+
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
 
 
 class GetMessageView(View):
@@ -307,8 +310,9 @@ class GetPrivateMessagesView(View):
             request = Request(environ)
             user_id = request.cookies.get('user_id')
             other_user = request.GET.get('user')
+            session_id = request.GET.get('session_id')
             timestamp = int(request.GET.get('timestamp', 0))
-
+            
             if not user_id:
                 return json_response(
                     {'error': 'Not authorized'}, 
@@ -341,6 +345,15 @@ class GetPrivateMessagesView(View):
                 other_user_id=other_user_id,
                 timestamp=timestamp
             )
+
+            key = bytes(get_key(session_id))
+            #print('key', key)
+            cipher = AES.new(key, AES.MODE_ECB)
+            for i in range(len(messages)):
+                msg = messages[i]['message_text']
+                #print('msg', msg)
+                messages[i]['message_text'] = base64.b64encode(cipher.encrypt(pad(msg.encode('utf-8'), AES.block_size))).decode('utf8')
+                #print('res', messages[i])
             
             new_timestamp = max([msg['timestamp'] for msg in messages]) if messages else timestamp
             
@@ -358,8 +371,57 @@ class GetPrivateMessagesView(View):
             )
 
 class SendPrivateMessageView(View):
-    response = SendMessageView.response
-  
+    def response(self, environ, start_response):
+        try:
+            request = Request(environ)
+            user_id = request.cookies.get('user_id')
+            
+            if not user_id:
+                return forbidden_response(start_response)
+
+            content_length = int(environ.get('CONTENT_LENGTH', 0))
+            post_data = json.loads(environ['wsgi.input'].read(content_length))
+            
+            receiver = post_data.get('receiver')
+            message = post_data.get('message')
+
+            if not receiver or not message:
+                return json_response(
+                    {'error': 'Missing parameters'}, 
+                    start_response, 
+                    '400 Bad Request'
+                )
+
+            receiver_id = UserModel.get_user_id(receiver)
+            if not receiver_id:
+                return json_response(
+                    {'error': 'User not found'}, 
+                    start_response, 
+                    '404 Not Found'
+                )
+                
+                receiver_id = result[0]
+
+            message_id = MessageModel.create_message(
+                message_type='private',
+                user_id=user_id,
+                message_text=message,
+                receiver_id=receiver_id
+            )
+            
+            if not message_id:
+                raise Exception("Failed to create private message")
+                
+            return json_response({'status': 'success'}, start_response)
+
+        except Exception as e:
+            print(f"Error in private message: {str(e)}")
+            return json_response(
+                {'error': 'Internal server error'}, 
+                start_response, 
+                '500 Internal Server Error'
+            )
+
 class SendSystemMessageView(View):
     def response(self, environ, start_response):
         try:
