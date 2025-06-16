@@ -1579,11 +1579,27 @@ function viewAttachments(messageElement) {
 
     async function loadPrivateMessages() {
         if (!currentPrivateChat) return;
+        const session_id = sessionStorage.getItem('session_id');
+        const session_key = CryptoJS.enc.Base64.parse(sessionStorage.getItem('session_key'));
         
         try {
-            const res = await fetch(`/get_private_messages?user=${currentPrivateChat}&timestamp=${lastTimestamp}`);
-            const data = await res.json();
-            
+            const res = await fetch(`/get_private_messages?user=${currentPrivateChat}&timestamp=${lastTimestamp}&session_id=${session_id}`);
+            let data = await res.json();
+            sessionStorage.setItem('messages', data.messages);
+            data.messages.forEach(element => {
+                console.log(element.message_text);
+                const decrypted = CryptoJS.AES.decrypt(
+                { ciphertext: CryptoJS.enc.Base64.parse(element.message_text) },
+                    session_key,
+                    {
+                        mode: CryptoJS.mode.ECB,
+                        padding: CryptoJS.pad.Pkcs7,
+                    }
+                );
+                element.message_text = decrypted.toString(CryptoJS.enc.Utf8);
+                
+            });
+
             if (data.messages?.length > 0) {
                 displayMessages(data.messages);
                 lastTimestamp = data.timestamp;
