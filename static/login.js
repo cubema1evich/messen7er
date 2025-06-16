@@ -1,5 +1,6 @@
 document.addEventListener("DOMContentLoaded", function () {
     const loginForm = document.getElementById("login-form");
+    
 
     function isValidUsername(username) {
         const regex = /^[a-zA-Zа-яА-Я0-9_-]{3,15}$/u;
@@ -22,43 +23,48 @@ document.addEventListener("DOMContentLoaded", function () {
         }, 5000);
     }
 
-    loginForm.addEventListener("submit", function (e) {
+        loginForm.addEventListener("submit", async function (e) {
         e.preventDefault();
         const username = document.getElementById("username").value.trim();
         const password = document.getElementById("password").value;
-        const requestBody = new URLSearchParams({ username, password });
-
+        
         if (!isValidUsername(username)) {
-            showAlert('Имя пользователя может содержать только:<br>• Буквы (рус/англ)<br>• Цифры<br>• Дефисы и подчеркивания<br>• Длину от 3 до 15 символов');
+            showAlert('Недопустимое имя пользователя');
             return;
         }
 
-        fetch("/login", {
-            method: "POST",
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: requestBody
-        })
-        .then(response => {
+        const requestBody = new URLSearchParams({ username, password });
+
+        try {
+            const response = await fetch("/login", {
+                method: "POST",
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: requestBody
+            });
+
             if (!response.ok) {
-                return response.json().then(err => Promise.reject(err));
+                const err = await response.json();
+                throw new Error(err.error || 'Ошибка при логине');
             }
-            return response.json();
-        })
-        .then(data => {
+
+            const data = await response.json();
+
             if (data.redirect) {
-                window.location.href = data.redirect;
+                sessionStorage.setItem('session_id', data.session_id);
+                sessionStorage.setItem('session_key', data.session_key);
                 sessionStorage.setItem('username', username);
+                window.location.href = data.redirect;
             }
-        })
-        .catch(error => {
-            const message = error.error || 'Ошибка соединения с сервером';
-            showAlert(message);
-        });
+
+
+        } catch (error) {
+            showAlert(error.message);
+        }
     });
 });
-            
+             
     function getUserId(username) {
         fetch('/get_user_id')
             .then(response => response.json())
