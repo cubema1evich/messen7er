@@ -30,3 +30,4 @@ def delete_session(session_id):
         with get_db_cursor() as cursor: 
                cursor.execute(f"DELETE FROM session WHERE id = ?", (session_id,))
                cursor.connection.commit()
+        return True
