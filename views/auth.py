@@ -1,8 +1,11 @@
+import os
+import base64
 import json
 
 from urllib.parse import parse_qs
 from webob import Request
 from models.UserModel import *
+from models.session import *
 from utils import *
 from .base import json_response, TemplateView
 
@@ -46,11 +49,21 @@ class LoginView(TemplateView):
 
             user_id, error = UserModel.authenticate(username, password)
             if user_id:
+                
+                (session_id, key) = create_session()
                 headers = [
                     ('Content-Type', 'application/json'),
-                    ('Set-Cookie', f'user_id={user_id}; Path=/; HttpOnly; SameSite=Lax')
+                    ('Set-Cookie', f'user_id={user_id}; Path=/; HttpOnly; SameSite=Lax'),
                 ]
-                data = json.dumps({'redirect': '/'})
+                
+                session_key = base64.b64encode(key).decode('utf8')
+                print('session_key', session_key)
+                data = json.dumps({
+                    'session_id': session_id,
+                    'session_key': session_key,
+                    'redirect': '/',
+                })
+                
                 start_response('200 OK', headers)
                 return [data.encode('utf-8')]
             else:
