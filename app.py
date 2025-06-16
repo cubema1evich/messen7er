@@ -106,6 +106,12 @@ def initialize_database():
             CREATE INDEX IF NOT EXISTS idx_group_messages_text_nocase 
             ON group_messages(message_text COLLATE NOCASE)
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS session (
+                id TEXT PRIMARY KEY,
+                key TEXT NOT NULL)               
+        ''')
+
 
         # Фиксируем изменения в базе данных
         cursor.connection.commit()
