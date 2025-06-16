@@ -57,7 +57,6 @@ class LoginView(TemplateView):
                 ]
                 
                 session_key = base64.b64encode(key).decode('utf8')
-                print('session_key', session_key)
                 data = json.dumps({
                     'session_id': session_id,
                     'session_key': session_key,
