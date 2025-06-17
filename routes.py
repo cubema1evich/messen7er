@@ -7,7 +7,8 @@ from views import (
     SearchUsersView, GetPrivateChatsView, SearchMessagesView,
     GetGroupMembersView, CheckGroupAccessView, SendSystemMessageView,
     ChangeMemberRoleView, RenameGroupView, RemoveFromGroupView,
-    GetGeneralMembersView, NotFoundView, ForbiddenView, InternalServerErrorView
+    GetGeneralMembersView, NotFoundView, ForbiddenView, InternalServerErrorView,
+    LogoutView, DeleteSessionView
 )
 
 routes = {
@@ -41,6 +42,8 @@ routes = {
     '/rename_group': RenameGroupView,
     '/remove_from_group': RemoveFromGroupView,
     '/check_groups_updates': CheckGroupsUpdatesView,
+    '/logout': LogoutView,
+    r'^/delete_session/([a-f0-9-]+)$': DeleteSessionView,
     r'^/get_general_members$': GetGeneralMembersView,
     r'^/edit_message/(\d+)$': EditMessageView,
     r'^/delete_message/(\d+)$': DeleteMessageView,

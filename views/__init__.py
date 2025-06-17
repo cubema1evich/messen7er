@@ -20,5 +20,5 @@ __all__ = [
     'DeleteMessageView', 'EditMessageView', 'GetGroupMessagesView',
     'SendPrivateMessageView', 'GetPrivateMessagesView', 'CheckPrivateChatsUpdatesView', 'CheckMessagesView',
     'CheckEditedMessagesView', 'SearchMessagesView', 'SearchUsersView',
-    'GetUserIdView', 'GetPrivateChatsView'
+    'GetUserIdView', 'GetPrivateChatsView', 'LogoutView', 'DeleteSessionView'
 ]
