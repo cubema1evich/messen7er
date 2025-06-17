@@ -7,7 +7,7 @@ from webob import Request
 from models.UserModel import *
 from models.session import *
 from utils import *
-from .base import json_response, TemplateView
+from .base import json_response, TemplateView, View
 
 
 class RegisterView(TemplateView):
@@ -72,3 +72,31 @@ class LoginView(TemplateView):
                     '401 Unauthorized'
                 )
         return super().response(environ, start_response)
+    
+class LogoutView(View):
+    def response(self, environ, start_response):
+        request = Request(environ)
+        session_id = request.cookies.get('session_id')
+        if not session_id:
+            # ищем в query string
+            session_id = request.GET.get('session_id')
+        
+        if session_id:
+            delete_session(session_id)
+        
+        # Очищаем куки
+        headers = [
+            ('Set-Cookie', 'user_id=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax'),
+            ('Set-Cookie', 'session_id=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax'),
+            ('Location', '/login')
+        ]
+        start_response('303 See Other', headers)
+        return []
+    
+class DeleteSessionView(View):
+    def response(self, environ, start_response):
+        session_id = environ['url_params'][0]
+        if delete_session(session_id):
+            return json_response({'status': 'success'}, start_response)
+        else:
+            return json_response({'error': 'Session not found'}, start_response, '404 Not Found')
