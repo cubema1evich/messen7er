@@ -170,13 +170,16 @@ document.addEventListener("DOMContentLoaded", function () {
         UI.membersSidebar.classList.remove('active');
     }
 
+    });
     window.logout = function() {
-        sessionStorage.clear();
-        document.cookie = 'user_id=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
-        updateAuthButtons();
-        window.location.href = '/login';
-    };
-});
+        const sessionId = sessionStorage.getItem('session_id');
+        fetch(`/logout?session_id=${encodeURIComponent(sessionId)}`, { method: 'GET', credentials: 'include' })
+            .then(() => {
+                sessionStorage.clear();
+                updateAuthButtons();
+                window.location.href = '/login';
+            });
+        };
 
     // Обработчик закрытия сайдбара через крестик
     UI.sidebarClose.addEventListener('click', function(e) {
