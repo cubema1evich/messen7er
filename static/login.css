@@ -102,7 +102,6 @@ button:hover {
     box-shadow: 0 5px 15px rgba(255, 182, 193, 0.4);
 }
 
-/* Добавить в конец стилей */
 .register-prompt {
     text-align: center;
     margin-top: 1.5rem;
@@ -124,7 +123,6 @@ button:hover {
     border-bottom-color: #FF6B6B;
 }
 
-/* Удалить стили для .register-btn */
 @media (max-width: 480px) {
     .register-prompt {
         margin-top: 1rem;
